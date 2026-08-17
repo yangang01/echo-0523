@@ -3,6 +3,16 @@ import { sceneOrder } from "../lib/experience";
 
 const hanCount = (text: string) => (text.match(/[\u3400-\u9fff]/g) ?? []).length;
 
+const expectedSceneEchoIds = {
+  wake: ["spark", "archive", "receiver"],
+  jealousy: ["praise", "smile", "meaning"],
+  confession: ["year", "month", "day", "locked"],
+  privilege: ["diary", "remembered", "seen", "action"],
+  game: ["near", "sync", "through", "complete"],
+  night: ["third", "two-thirds", "connected", "frequency"],
+  finale: ["recap", "present", "echo"],
+} as const;
+
 test("every signal channel contains all three forms of being heard", () => {
   for (const channel of signalChannels) {
     expect(channel.responses.map((item) => item.type).sort()).toEqual(["ally", "compliment", "curious"]);
@@ -17,8 +27,10 @@ test("final copy uses confirmed names and avoids promises", () => {
 
 test("every scene provides three or four stable echo fragments", () => {
   for (const scene of sceneOrder.filter((id) => id !== "signal")) {
-    expect(sceneEchoes[scene]).toHaveLength(scene === "wake" || scene === "jealousy" || scene === "finale" ? 3 : 4);
-    expect(new Set(sceneEchoes[scene].map((fragment) => fragment.id)).size).toBe(sceneEchoes[scene].length);
+    const ids = sceneEchoes[scene].map((fragment) => fragment.id);
+    expect(ids).toEqual(expectedSceneEchoIds[scene]);
+    expect(ids.every((id) => id.trim().length > 0)).toBe(true);
+    expect(new Set(ids).size).toBe(ids.length);
     expect(sceneEchoes[scene].every((fragment) => fragment.text.trim().length > 0)).toBe(true);
   }
 });
