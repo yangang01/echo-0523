@@ -25,6 +25,21 @@ test("announces the active fragment politely", () => {
   expect(screen.getByRole("status")).toHaveAttribute("aria-live", "polite");
 });
 
+test("keeps an atomic live region mounted while active copy changes", () => {
+  const { rerender } = render(
+    <EchoTranscript fragments={fragments} unlocked={["one", "two"]} activeId="one" onSelect={() => {}} />,
+  );
+  const status = screen.getByRole("status");
+
+  rerender(
+    <EchoTranscript fragments={fragments} unlocked={["one", "two"]} activeId="two" onSelect={() => {}} />,
+  );
+
+  expect(screen.getByRole("status")).toBe(status);
+  expect(status).toHaveTextContent("第二段回音");
+  expect(status).toHaveAttribute("aria-atomic", "true");
+});
+
 test("renders only an empty placeholder when there is no active fragment", () => {
   const { container } = render(
     <EchoTranscript fragments={fragments} unlocked={["one"]} activeId={null} onSelect={() => {}} />,
@@ -33,7 +48,7 @@ test("renders only an empty placeholder when there is no active fragment", () =>
   expect(container).toHaveTextContent("");
   expect(container.firstElementChild).toHaveClass("echo-transcript", "echo-transcript-empty");
   expect(container.firstElementChild).toHaveAttribute("aria-hidden", "true");
-  expect(screen.queryByLabelText("已解锁回音")).not.toBeInTheDocument();
+  expect(screen.queryByRole("group", { name: "回音片段" })).not.toBeInTheDocument();
 });
 
 test("hides a locked fragment even when it is marked active", () => {
@@ -43,7 +58,7 @@ test("hides a locked fragment even when it is marked active", () => {
 
   expect(screen.queryByText("第三段回音")).not.toBeInTheDocument();
   expect(container.firstElementChild).toHaveClass("echo-transcript-empty");
-  expect(screen.queryByLabelText("已解锁回音")).not.toBeInTheDocument();
+  expect(screen.queryByRole("group", { name: "回音片段" })).not.toBeInTheDocument();
 });
 
 test("disables locked markers without selecting them", () => {
@@ -54,4 +69,12 @@ test("disables locked markers without selecting them", () => {
   expect(lockedMarker).toBeDisabled();
   fireEvent.click(lockedMarker);
   expect(onSelect).not.toHaveBeenCalled();
+});
+
+test("labels the marker group and exposes the current fragment", () => {
+  render(<EchoTranscript fragments={fragments} unlocked={["one", "two"]} activeId="two" onSelect={() => {}} />);
+
+  expect(screen.getByRole("group", { name: "回音片段" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "回看第 2 段" })).toHaveAttribute("aria-current", "true");
+  expect(screen.getByRole("button", { name: "回看第 1 段" })).not.toHaveAttribute("aria-current");
 });

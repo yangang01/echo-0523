@@ -15,10 +15,10 @@ export function EchoTranscript({ fragments, unlocked, activeId, onSelect }: Prop
 
   return (
     <div className="echo-transcript">
-      <p key={active.id} className="echo-transcript-copy" role="status" aria-live="polite">
+      <p className="echo-transcript-copy" role="status" aria-live="polite" aria-atomic="true">
         {active.text}
       </p>
-      <div className="echo-transcript-markers" aria-label="已解锁回音">
+      <div className="echo-transcript-markers" role="group" aria-label="回音片段">
         {fragments.map((fragment, index) => {
           const available = unlocked.includes(fragment.id);
           return (
@@ -27,6 +27,7 @@ export function EchoTranscript({ fragments, unlocked, activeId, onSelect }: Prop
               type="button"
               disabled={!available}
               className={fragment.id === active.id ? "active" : ""}
+              aria-current={fragment.id === active.id ? "true" : undefined}
               aria-label={available ? `回看第 ${index + 1} 段` : `第 ${index + 1} 段尚未解锁`}
               onClick={() => available && onSelect(fragment.id)}
             />
