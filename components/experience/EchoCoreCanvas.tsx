@@ -10,7 +10,7 @@ import { createFrameTimer } from "../../lib/frame-timer";
 import { scatterTargets, sceneParticleTargets, sceneRotationY, sceneSpinFactor } from "../../lib/particles";
 import { initialQuality, particleBudget } from "../../lib/quality";
 
-type Props = { scene: SceneId; growth: Growth };
+type Props = { scene: SceneId; growth: Growth; finaleOpen: boolean };
 
 const vertexShader = `
   uniform float uTime;
@@ -70,10 +70,11 @@ const fragmentShader = `
   }
 `;
 
-export function EchoCoreCanvas({ scene, growth }: Props) {
+export function EchoCoreCanvas({ scene, growth, finaleOpen }: Props) {
+  const renderScene: SceneId = scene === "finale" && !finaleOpen ? "wake" : scene;
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const liveRef = useRef({ scene, growth });
-  liveRef.current = { scene, growth };
+  const liveRef = useRef({ scene: renderScene, growth });
+  useEffect(() => { liveRef.current = { scene: renderScene, growth }; }, [growth, renderScene]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -234,7 +235,8 @@ export function EchoCoreCanvas({ scene, growth }: Props) {
       infinityRibbons.rotation.y = pointer.x * .08;
       infinityRibbons.scale.setScalar(.94 + Math.sin(elapsed * .9) * .018);
       camera.position.z = THREE.MathUtils.lerp(camera.position.z, style.camera, delta * 1.5);
-      composer ? composer.render() : renderer.render(world, camera);
+      if (composer) composer.render();
+      else renderer.render(world, camera);
       frame = requestAnimationFrame(render);
     };
     frame = requestAnimationFrame(render);
@@ -259,5 +261,5 @@ export function EchoCoreCanvas({ scene, growth }: Props) {
     };
   }, []);
 
-  return <canvas ref={canvasRef} className="echo-canvas" data-sculpture={scene} aria-label="0523 回音星核动态视觉" />;
+  return <canvas ref={canvasRef} className="echo-canvas" data-sculpture={renderScene} aria-label="0523 回音星核动态视觉" />;
 }
