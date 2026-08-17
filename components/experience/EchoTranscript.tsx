@@ -10,7 +10,7 @@ type Props = {
 };
 
 export function EchoTranscript({ fragments, unlocked, activeId, onSelect }: Props) {
-  const active = fragments.find((fragment) => fragment.id === activeId);
+  const active = fragments.find((fragment) => fragment.id === activeId && unlocked.includes(fragment.id));
   if (!active) return <div className="echo-transcript echo-transcript-empty" aria-hidden="true" />;
 
   return (

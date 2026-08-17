@@ -36,6 +36,16 @@ test("renders only an empty placeholder when there is no active fragment", () =>
   expect(screen.queryByLabelText("已解锁回音")).not.toBeInTheDocument();
 });
 
+test("hides a locked fragment even when it is marked active", () => {
+  const { container } = render(
+    <EchoTranscript fragments={fragments} unlocked={["one"]} activeId="three" onSelect={() => {}} />,
+  );
+
+  expect(screen.queryByText("第三段回音")).not.toBeInTheDocument();
+  expect(container.firstElementChild).toHaveClass("echo-transcript-empty");
+  expect(screen.queryByLabelText("已解锁回音")).not.toBeInTheDocument();
+});
+
 test("disables locked markers without selecting them", () => {
   const onSelect = vi.fn();
   render(<EchoTranscript fragments={fragments} unlocked={["one"]} activeId="one" onSelect={onSelect} />);
