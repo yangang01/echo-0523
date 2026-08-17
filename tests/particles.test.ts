@@ -27,3 +27,23 @@ test("all eight chapters have materially different particle sculptures", () => {
   );
   expect(new Set(signatures).size).toBe(sceneOrder.length);
 });
+
+test("the finale infinity sculpture stays front-facing", () => {
+  const sceneRotationY = (particles as typeof particles & {
+    sceneRotationY?: (scene: (typeof sceneOrder)[number], elapsed: number, pointerX: number) => number;
+  }).sceneRotationY;
+
+  expect(sceneRotationY).toBeTypeOf("function");
+  expect(sceneRotationY!("finale", 83, 0)).toBe(0);
+  expect(sceneRotationY!("game", 10, 0)).not.toBe(0);
+});
+
+test("the finale disables depth-axis shader spin", () => {
+  const sceneSpinFactor = (particles as typeof particles & {
+    sceneSpinFactor?: (scene: (typeof sceneOrder)[number]) => number;
+  }).sceneSpinFactor;
+
+  expect(sceneSpinFactor).toBeTypeOf("function");
+  expect(sceneSpinFactor!("finale")).toBe(0);
+  expect(sceneSpinFactor!("game")).toBe(1);
+});

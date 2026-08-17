@@ -121,3 +121,12 @@ export function sceneParticleTargets(scene: SceneId, count: number): number[] {
     return [x, y, (random() - 0.5) * 0.38 + Math.cos(x * 1.8) * 0.12];
   });
 }
+
+export function sceneRotationY(scene: SceneId, elapsed: number, pointerX: number): number {
+  if (scene === "finale") return pointerX * 0.04;
+  return elapsed * (scene === "game" ? 0.13 : 0.045) + pointerX * 0.12;
+}
+
+export function sceneSpinFactor(scene: SceneId): number {
+  return scene === "finale" ? 0 : 1;
+}

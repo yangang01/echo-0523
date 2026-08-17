@@ -7,7 +7,7 @@ import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import type { Growth, SceneId } from "../../lib/experience";
 import { createFrameTimer } from "../../lib/frame-timer";
-import { scatterTargets, sceneParticleTargets } from "../../lib/particles";
+import { scatterTargets, sceneParticleTargets, sceneRotationY, sceneSpinFactor } from "../../lib/particles";
 import { initialQuality, particleBudget } from "../../lib/quality";
 
 type Props = { scene: SceneId; growth: Growth };
@@ -16,6 +16,7 @@ const vertexShader = `
   uniform float uTime;
   uniform float uMorph;
   uniform float uEnergy;
+  uniform float uSpinFactor;
   uniform float uFilaments;
   uniform float uPetals;
   uniform float uCurrents;
@@ -33,7 +34,7 @@ const vertexShader = `
     p *= 1.0 + pulse;
     p.x += sin(p.y * 4.0 + uTime * 1.6 + aSeed) * 0.035 * (1.0 + uFilaments * .22);
     p.y += cos(p.x * 5.0 - uTime * 1.3) * 0.026 * (1.0 + uPetals * .18);
-    float spin = uCurrents * .08 + uTime * .035;
+    float spin = (uCurrents * .08 + uTime * .035) * uSpinFactor;
     mat2 rotation = mat2(cos(spin), -sin(spin), sin(spin), cos(spin));
     p.xz = rotation * p.xz;
     vec2 delta = p.xy - uPointer * 1.8;
@@ -111,7 +112,7 @@ export function EchoCoreCanvas({ scene, growth }: Props) {
     geometry.setAttribute("aColor", new THREE.BufferAttribute(colors, 3));
 
     const uniforms = {
-      uTime: { value: 0 }, uMorph: { value: 0 }, uEnergy: { value: sceneStyle.wake.energy },
+      uTime: { value: 0 }, uMorph: { value: 0 }, uEnergy: { value: sceneStyle.wake.energy }, uSpinFactor: { value: 1 },
       uFilaments: { value: 0 }, uPetals: { value: 0 }, uCurrents: { value: 0 },
       uPointer: { value: new THREE.Vector2(0, 0) },
     };
@@ -207,6 +208,7 @@ export function EchoCoreCanvas({ scene, growth }: Props) {
       morph = Math.min(1, morph + delta * .62);
       uniforms.uTime.value = elapsed;
       uniforms.uMorph.value = morph;
+      uniforms.uSpinFactor.value = sceneSpinFactor(current.scene);
       uniforms.uEnergy.value = THREE.MathUtils.lerp(uniforms.uEnergy.value, style.energy, delta * 2.4);
       uniforms.uFilaments.value = THREE.MathUtils.lerp(uniforms.uFilaments.value, current.growth.filaments, delta * 3);
       uniforms.uPetals.value = THREE.MathUtils.lerp(uniforms.uPetals.value, current.growth.petals, delta * 3);
@@ -214,7 +216,7 @@ export function EchoCoreCanvas({ scene, growth }: Props) {
       uniforms.uPointer.value.lerp(pointer, delta * 2.8);
       desiredTint.set(style.tint);
       tint.lerp(desiredTint, delta * 2.2);
-      particles.rotation.y = elapsed * (current.scene === "game" ? .13 : .045) + pointer.x * 0.12;
+      particles.rotation.y = sceneRotationY(current.scene, elapsed, pointer.x);
       particles.rotation.x = pointer.y * 0.08 + (current.scene === "game" ? .18 : 0);
       core.rotation.y = elapsed * 0.18;
       core.rotation.x = elapsed * 0.11;
