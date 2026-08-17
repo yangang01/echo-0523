@@ -26,12 +26,14 @@ export function echoCoreTargets(count: number, seed = 523): number[] {
 
 export function infinityTargets(count: number): number[] {
   const values = new Array<number>(count * 3);
+  const random = randomSource(5230523);
   for (let index = 0; index < count; index += 1) {
-    const t = (index / count) * Math.PI * 2;
+    const t = (index / count) * Math.PI * 2 + (random() - 0.5) * 0.055;
     const width = 2.15;
-    values[index * 3] = Math.sin(t) * width;
-    values[index * 3 + 1] = Math.sin(t) * Math.cos(t) * 1.2;
-    values[index * 3 + 2] = Math.sin(t * 3) * 0.22;
+    const thickness = (random() - 0.5) * 0.22;
+    values[index * 3] = Math.sin(t) * width + Math.cos(t) * thickness;
+    values[index * 3 + 1] = Math.sin(t) * Math.cos(t) * 1.2 + Math.sin(t * 2) * thickness;
+    values[index * 3 + 2] = (random() - 0.5) * 0.34 + Math.sin(t * 3) * 0.08;
   }
   return values;
 }
