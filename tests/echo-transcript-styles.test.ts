@@ -19,7 +19,7 @@ test("renders the transcript as a compact cinematic glass panel", () => {
 });
 
 test("animates the scan and copy while preserving marker states", () => {
-  expect(ruleFor(".echo-transcript::before")).toMatch(/animation:\s*echo-scan/);
+  expect(ruleFor(".echo-transcript-reveal::before")).toMatch(/animation:\s*echo-scan/);
   expect(ruleFor(".echo-transcript-copy")).toMatch(/animation:\s*echo-copy-in/);
   expect(ruleFor(".echo-transcript-markers button.active")).toMatch(/box-shadow:/);
   expect(ruleFor(".echo-transcript-markers button:disabled")).toMatch(/cursor:\s*not-allowed/);
@@ -33,6 +33,9 @@ test("collapses an empty transcript and keeps desktop copy aligned", () => {
   expect(empty).toMatch(/margin:\s*0/);
   expect(empty).toMatch(/padding:\s*0/);
   expect(empty).toMatch(/border:\s*0/);
+  expect(empty).toMatch(/background:\s*none/);
+  expect(empty).toMatch(/box-shadow:\s*none/);
+  expect(empty).toMatch(/backdrop-filter:\s*none/);
 
   expect(css).toMatch(/@media\s*\(min-width:\s*800px\)[\s\S]*?\.echo-transcript\s*\{[^}]*margin-left:\s*0/);
 });
@@ -46,7 +49,7 @@ test("constrains the transcript on short phones and respects reduced motion", ()
     /@media\s*\(max-height:\s*680px\)[\s\S]*?\.echo-transcript-empty\s*\{[^}]*min-height:\s*0[^}]*height:\s*0[^}]*margin:\s*0[^}]*padding:\s*0/,
   );
   expect(css).toMatch(
-    /@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*?\.echo-transcript::before\s*\{[^}]*display:\s*none/,
+    /@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*?\.echo-transcript-reveal::before\s*\{[^}]*display:\s*none/,
   );
   expect(css).toMatch(
     /@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*?\.echo-transcript-copy\s*\{[^}]*transform:\s*none/,

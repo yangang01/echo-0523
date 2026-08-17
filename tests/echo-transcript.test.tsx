@@ -40,14 +40,45 @@ test("keeps an atomic live region mounted while active copy changes", () => {
   expect(status).toHaveAttribute("aria-atomic", "true");
 });
 
-test("renders only an empty placeholder when there is no active fragment", () => {
+test("mounts the live region while empty so the first fragment can be announced", () => {
+  const { rerender } = render(
+    <EchoTranscript fragments={fragments} unlocked={[]} activeId={null} onSelect={() => {}} />,
+  );
+  const status = screen.getByRole("status");
+
+  expect(status).toBeEmptyDOMElement();
+
+  rerender(<EchoTranscript fragments={fragments} unlocked={["one"]} activeId="one" onSelect={() => {}} />);
+
+  expect(screen.getByRole("status")).toBe(status);
+  expect(status).toHaveTextContent("第一段回音");
+});
+
+test("remounts only the keyed reveal layer when the active fragment changes", () => {
+  const { container, rerender } = render(
+    <EchoTranscript fragments={fragments} unlocked={["one", "two"]} activeId="one" onSelect={() => {}} />,
+  );
+  const status = screen.getByRole("status");
+  const firstReveal = container.querySelector(".echo-transcript-reveal");
+
+  rerender(
+    <EchoTranscript fragments={fragments} unlocked={["one", "two"]} activeId="two" onSelect={() => {}} />,
+  );
+
+  expect(screen.getByRole("status")).toBe(status);
+  expect(container.querySelector(".echo-transcript-reveal")).not.toBe(firstReveal);
+  expect(status).toHaveTextContent("第二段回音");
+});
+
+test("renders a collapsed empty shell with no markers when there is no active fragment", () => {
   const { container } = render(
     <EchoTranscript fragments={fragments} unlocked={["one"]} activeId={null} onSelect={() => {}} />,
   );
 
   expect(container).toHaveTextContent("");
   expect(container.firstElementChild).toHaveClass("echo-transcript", "echo-transcript-empty");
-  expect(container.firstElementChild).toHaveAttribute("aria-hidden", "true");
+  expect(container.firstElementChild).not.toHaveAttribute("aria-hidden");
+  expect(screen.getByRole("status")).toBeEmptyDOMElement();
   expect(screen.queryByRole("group", { name: "回音片段" })).not.toBeInTheDocument();
 });
 
