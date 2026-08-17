@@ -1,22 +1,56 @@
 import { useState } from "react";
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { vi } from "vitest";
+import { afterEach, vi } from "vitest";
 import { ConfessionScene, FinaleScene, GameScene, JealousyScene, NightScene, PrivilegeScene, SignalScene, WakeScene } from "../components/experience/scenes";
 
 const noop = () => undefined;
+
+afterEach(() => {
+  if (vi.isFakeTimers()) {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  }
+});
 
 test("wake requires a completed three-second hold before continuing", () => {
   vi.useFakeTimers();
   const onComplete = vi.fn();
   const onReveal = vi.fn();
   render(<WakeScene onComplete={onComplete} onReveal={onReveal} />);
-  fireEvent.pointerDown(screen.getByRole("button", { name: "长按唤醒宇宙" }));
+  const button = screen.getByRole("button", { name: "长按唤醒宇宙" });
+  fireEvent.pointerDown(button);
   act(() => vi.advanceTimersByTime(2999));
   expect(onComplete).not.toHaveBeenCalled();
   act(() => vi.advanceTimersByTime(1));
   expect(onComplete).toHaveBeenCalledOnce();
   expect(onReveal.mock.calls.map(([id]) => id)).toEqual(["spark", "archive", "receiver"]);
-  vi.useRealTimers();
+  fireEvent.pointerUp(button);
+  fireEvent.click(button);
+  expect(button).toHaveTextContent("长按 3 秒");
+  expect(onComplete).toHaveBeenCalledOnce();
+});
+
+test("wake cancels hold timers on pointer cancellation and unmount", () => {
+  vi.useFakeTimers();
+  const onComplete = vi.fn();
+  const onReveal = vi.fn();
+  const first = render(<WakeScene onComplete={onComplete} onReveal={onReveal} />);
+  const button = screen.getByRole("button", { name: "长按唤醒宇宙" });
+
+  fireEvent.pointerDown(button);
+  act(() => vi.advanceTimersByTime(999));
+  fireEvent.pointerCancel(button);
+  act(() => vi.advanceTimersByTime(3000));
+  expect(onReveal).not.toHaveBeenCalled();
+  expect(onComplete).not.toHaveBeenCalled();
+  first.unmount();
+
+  const second = render(<WakeScene onComplete={onComplete} onReveal={onReveal} />);
+  fireEvent.pointerDown(screen.getByRole("button", { name: "长按唤醒宇宙" }));
+  second.unmount();
+  act(() => vi.advanceTimersByTime(3000));
+  expect(onReveal).not.toHaveBeenCalled();
+  expect(onComplete).not.toHaveBeenCalled();
 });
 
 test("wake offers three-tap accessibility fallback", () => {
@@ -69,6 +103,41 @@ test("night scene supports three frequency taps as a mobile fallback", () => {
   fireEvent.click(link);
   expect(onComplete).toHaveBeenCalledOnce();
   expect(onReveal.mock.calls.map(([id]) => id)).toEqual(["third", "two-thirds", "connected", "frequency"]);
+});
+
+test("night suppresses the synthesized click after a handled hold", () => {
+  vi.useFakeTimers();
+  const onComplete = vi.fn();
+  const onReveal = vi.fn();
+  render(<NightScene onComplete={onComplete} onReveal={onReveal} />);
+  const link = screen.getByRole("button", { name: "按住连接深夜频率" });
+
+  fireEvent.pointerDown(link);
+  act(() => vi.advanceTimersByTime(1980));
+  fireEvent.pointerUp(link);
+  fireEvent.click(link);
+
+  expect(link).toHaveTextContent("66%");
+  expect(onReveal.mock.calls.map(([id]) => id)).toEqual(["third", "two-thirds"]);
+  expect(onComplete).not.toHaveBeenCalled();
+});
+
+test("night stops hold progress on pointer cancellation", () => {
+  vi.useFakeTimers();
+  const onReveal = vi.fn();
+  render(<NightScene onComplete={noop} onReveal={onReveal} />);
+  const link = screen.getByRole("button", { name: "按住连接深夜频率" });
+
+  fireEvent.pointerDown(link);
+  act(() => vi.advanceTimersByTime(120));
+  fireEvent.pointerCancel(link);
+  act(() => vi.advanceTimersByTime(600));
+
+  expect(link).toHaveTextContent("4%");
+  expect(onReveal).not.toHaveBeenCalled();
+  fireEvent.click(link);
+  expect(link).toHaveTextContent("38%");
+  expect(onReveal.mock.calls.map(([id]) => id)).toEqual(["third"]);
 });
 
 test("confession reveals each coordinate and the locked echo", () => {
@@ -129,8 +198,11 @@ test("finale reveals three explicit steps before showing its ending", () => {
   const onComplete = vi.fn();
   render(<FinaleScene onComplete={onComplete} onReveal={onReveal} onRestart={noop} />);
 
+  expect(document.querySelector(".finale-coordinate")).toHaveTextContent("05:23");
   expect(screen.queryByText("你说的有的没的，在我这里都不是小事。")).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "读取回音 1 / 3" }));
+  const firstReveal = screen.getByRole("button", { name: "读取回音 1 / 3" });
+  expect(firstReveal).toHaveClass("finale-reveal");
+  fireEvent.click(firstReveal);
   fireEvent.click(screen.getByRole("button", { name: "读取回音 2 / 3" }));
   expect(onComplete).not.toHaveBeenCalled();
   expect(screen.queryByRole("button", { name: "重新进入这片宇宙" })).not.toBeInTheDocument();

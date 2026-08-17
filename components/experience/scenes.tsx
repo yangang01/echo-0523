@@ -24,6 +24,7 @@ export function WakeScene({ onComplete, onReveal }: BasicProps) {
   const [holding, setHolding] = useState(false);
   const [taps, setTaps] = useState(0);
   const tapsRef = useRef(0);
+  const suppressClick = useRef(false);
   const revealOnce = useRevealOnce(onReveal);
   const finish = () => { if (!completed.current) { completed.current = true; onComplete(); } };
   const clearTimers = () => { timers.current.forEach(clearTimeout); timers.current = []; };
@@ -33,12 +34,13 @@ export function WakeScene({ onComplete, onReveal }: BasicProps) {
     (["spark", "archive", "receiver"] as const).forEach((id, index) => {
       timers.current.push(setTimeout(() => {
         revealOnce(id);
-        if (index === 2) { setHolding(false); finish(); }
+        if (index === 2) { suppressClick.current = true; setHolding(false); finish(); }
       }, (index + 1) * 1000));
     });
   };
   const cancel = () => { setHolding(false); clearTimers(); };
   const tap = () => {
+    if (suppressClick.current) { suppressClick.current = false; return; }
     const next = Math.min(3, tapsRef.current + 1);
     tapsRef.current = next;
     setTaps(next);
@@ -46,7 +48,7 @@ export function WakeScene({ onComplete, onReveal }: BasicProps) {
     if (next === 3) finish();
   };
   useEffect(() => clearTimers, []);
-  return <button className={`hold-orb ${holding ? "is-holding" : ""}`} aria-label="长按唤醒宇宙" onPointerDown={start} onPointerUp={cancel} onPointerLeave={cancel} onClick={tap} onKeyDown={(event) => { if ((event.key === "Enter" || event.key === " ") && !holding) start(); }} onKeyUp={cancel}><span>{taps ? `继续触碰 ${taps}/3` : "长按 3 秒"}</span><i /></button>;
+  return <button className={`hold-orb ${holding ? "is-holding" : ""}`} aria-label="长按唤醒宇宙" onPointerDown={start} onPointerUp={cancel} onPointerCancel={cancel} onPointerLeave={cancel} onClick={tap} onKeyDown={(event) => { if ((event.key === "Enter" || event.key === " ") && !holding) start(); }} onKeyUp={cancel}><span>{taps ? `继续触碰 ${taps}/3` : "长按 3 秒"}</span><i /></button>;
 }
 
 export function JealousyScene({ onComplete, onReveal }: BasicProps) {
@@ -140,19 +142,49 @@ export function GameScene({ onComplete, onReveal }: BasicProps) {
 export function NightScene({ onComplete, onReveal }: BasicProps) {
   const [progress, setProgress] = useState(0);
   const interval = useRef<ReturnType<typeof setInterval> | null>(null);
+  const holdHandled = useRef(false);
+  const suppressClick = useRef(false);
+  const clickResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const completed = useRef(false);
   const revealOnce = useRevealOnce(onReveal);
   const finish = useCallback(() => { if (!completed.current) { completed.current = true; onComplete(); } }, [onComplete]);
   const update = (amount: number) => setProgress((value) => Math.min(100, value + amount));
-  const start = () => { if (!interval.current) interval.current = setInterval(() => update(2), 60); };
-  const stop = () => { if (interval.current) clearInterval(interval.current); interval.current = null; };
-  useEffect(() => stop, []);
+  const start = () => {
+    if (interval.current) return;
+    if (clickResetTimer.current) clearTimeout(clickResetTimer.current);
+    suppressClick.current = false;
+    holdHandled.current = false;
+    interval.current = setInterval(() => { holdHandled.current = true; update(2); }, 60);
+  };
+  const stop = () => {
+    if (interval.current) clearInterval(interval.current);
+    interval.current = null;
+    if (holdHandled.current) {
+      suppressClick.current = true;
+      if (clickResetTimer.current) clearTimeout(clickResetTimer.current);
+      clickResetTimer.current = setTimeout(() => { suppressClick.current = false; clickResetTimer.current = null; }, 0);
+      holdHandled.current = false;
+    }
+  };
+  const tap = () => {
+    if (suppressClick.current) {
+      suppressClick.current = false;
+      if (clickResetTimer.current) clearTimeout(clickResetTimer.current);
+      clickResetTimer.current = null;
+      return;
+    }
+    update(34);
+  };
+  useEffect(() => () => {
+    if (interval.current) clearInterval(interval.current);
+    if (clickResetTimer.current) clearTimeout(clickResetTimer.current);
+  }, []);
   useEffect(() => {
     if (progress >= 33) revealOnce("third");
     if (progress >= 66) revealOnce("two-thirds");
     if (progress >= 100) { revealOnce("connected"); revealOnce("frequency"); stop(); finish(); }
   }, [finish, progress, revealOnce]);
-  return <button className="frequency-link" onPointerDown={start} onPointerUp={stop} onPointerLeave={stop} onClick={() => update(34)} aria-label="按住连接深夜频率"><span className="frequency-line" style={{ width: `${progress}%` }} /><b>{progress === 100 ? "我们同频了" : "按住，或触碰三次，让两端慢慢靠近"}</b><small>{progress}%</small></button>;
+  return <button className="frequency-link" onPointerDown={start} onPointerUp={stop} onPointerCancel={stop} onPointerLeave={stop} onClick={tap} aria-label="按住连接深夜频率"><span className="frequency-line" style={{ width: `${progress}%` }} /><b>{progress === 100 ? "我们同频了" : "按住，或触碰三次，让两端慢慢靠近"}</b><small>{progress}%</small></button>;
 }
 
 export function FinaleScene({ onComplete, onReveal, onRestart }: BasicProps & { onRestart: () => void }) {
@@ -169,5 +201,5 @@ export function FinaleScene({ onComplete, onReveal, onRestart }: BasicProps & { 
     if (next === 3 && !completed.current) { completed.current = true; onComplete(); }
   };
   const label = step === 0 ? "读取回音 1 / 3" : step === 1 ? "读取回音 2 / 3" : "展开无限回音";
-  return <div className="finale-copy">{step < 3 ? <button className="replay-button" onClick={advance}>{label}</button> : <><div className="finale-coordinate" aria-hidden="true">05:23</div><p className="final-line">{finalCopy.lines[0]}<br />{finalCopy.lines[1]}</p><div className="love-clock"><span><b>{elapsed.days}</b>天</span><span><b>{elapsed.hours}</b>时</span><span><b>{elapsed.minutes}</b>分</span><span><b>{elapsed.seconds}</b>秒</span></div><p className="signature">TO {finalCopy.to}<br />FROM {finalCopy.from}<br />SINCE {finalCopy.since}</p><button className="replay-button" onClick={onRestart}>重新进入这片宇宙</button></>}</div>;
+  return <div className="finale-copy"><div className="finale-coordinate" aria-hidden="true">05:23</div>{step < 3 ? <button className="finale-reveal" onClick={advance}>{label}</button> : <><p className="final-line">{finalCopy.lines[0]}<br />{finalCopy.lines[1]}</p><div className="love-clock"><span><b>{elapsed.days}</b>天</span><span><b>{elapsed.hours}</b>时</span><span><b>{elapsed.minutes}</b>分</span><span><b>{elapsed.seconds}</b>秒</span></div><p className="signature">TO {finalCopy.to}<br />FROM {finalCopy.from}<br />SINCE {finalCopy.since}</p><button className="replay-button" onClick={onRestart}>重新进入这片宇宙</button></>}</div>;
 }
