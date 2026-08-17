@@ -15,8 +15,9 @@ export function WakeScene({ onComplete }: BasicProps) {
   const finish = () => { if (!completed.current) { completed.current = true; onComplete(); } };
   const start = () => { setHolding(true); timer.current = setTimeout(finish, 3000); };
   const cancel = () => { setHolding(false); if (timer.current) clearTimeout(timer.current); };
-  const tap = () => setTaps((value) => { const next = Math.min(3, value + 1); if (next === 3) finish(); return next; });
+  const tap = () => setTaps((value) => Math.min(3, value + 1));
   useEffect(() => cancel, []);
+  useEffect(() => { if (taps >= 3) finish(); }, [taps]);
   return <button className={`hold-orb ${holding ? "is-holding" : ""}`} aria-label="长按唤醒宇宙" onPointerDown={start} onPointerUp={cancel} onPointerLeave={cancel} onClick={tap} onKeyDown={(event) => { if ((event.key === "Enter" || event.key === " ") && !holding) start(); }} onKeyUp={cancel}><span>{taps ? `继续触碰 ${taps}/3` : "长按 3 秒"}</span><i /></button>;
 }
 
@@ -69,10 +70,11 @@ export function NightScene({ onComplete }: BasicProps) {
   const interval = useRef<ReturnType<typeof setInterval> | null>(null);
   const completed = useRef(false);
   const finish = () => { if (!completed.current) { completed.current = true; onComplete(); } };
-  const update = (amount: number) => setProgress((value) => { const next = Math.min(100, value + amount); if (next === 100) { if (interval.current) clearInterval(interval.current); finish(); } return next; });
+  const update = (amount: number) => setProgress((value) => Math.min(100, value + amount));
   const start = () => { interval.current = setInterval(() => update(2), 60); };
   const stop = () => { if (interval.current) clearInterval(interval.current); };
   useEffect(() => stop, []);
+  useEffect(() => { if (progress >= 100) { stop(); finish(); } }, [progress]);
   return <button className="frequency-link" onPointerDown={start} onPointerUp={stop} onPointerLeave={stop} onClick={() => update(34)} aria-label="按住连接深夜频率"><span className="frequency-line" style={{ width: `${progress}%` }} /><b>{progress === 100 ? "我们同频了" : "按住，或触碰三次，让两端慢慢靠近"}</b><small>{progress}%</small></button>;
 }
 

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { vi } from "vitest";
 import { JealousyScene, NightScene, SignalScene, WakeScene } from "../components/experience/scenes";
@@ -52,4 +53,20 @@ test("night scene supports three frequency taps as a mobile fallback", () => {
   fireEvent.click(link);
   fireEvent.click(link);
   expect(onComplete).toHaveBeenCalledOnce();
+});
+
+test("tap fallbacks complete outside the child render phase", () => {
+  const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  function Parent() {
+    const [done, setDone] = useState(false);
+    return done ? <p>完成</p> : <WakeScene onComplete={() => setDone(true)} />;
+  }
+  render(<Parent />);
+  const wake = screen.getByRole("button", { name: "长按唤醒宇宙" });
+  fireEvent.click(wake);
+  fireEvent.click(wake);
+  fireEvent.click(wake);
+  expect(screen.getByText("完成")).toBeInTheDocument();
+  expect(error).not.toHaveBeenCalled();
+  error.mockRestore();
 });
