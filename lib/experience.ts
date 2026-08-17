@@ -1,0 +1,36 @@
+export const sceneOrder = ["wake", "jealousy", "confession", "privilege", "signal", "game", "night", "finale"] as const;
+export type SceneId = (typeof sceneOrder)[number];
+export type ResponseType = "curious" | "compliment" | "ally";
+export type Growth = { filaments: number; petals: number; currents: number };
+export type ExperienceState = {
+  scene: SceneId;
+  completed: SceneId[];
+  growth: Growth;
+  soundEnabled: boolean;
+};
+export type ExperienceEvent =
+  | { type: "SCENE_COMPLETE"; scene: SceneId }
+  | { type: "NEXT" }
+  | { type: "RESPONSE_SELECTED"; response: ResponseType }
+  | { type: "SOUND_SET"; enabled: boolean }
+  | { type: "RESTART" };
+
+export function createExperience(scene: SceneId = "wake"): ExperienceState {
+  return { scene, completed: [], growth: { filaments: 0, petals: 0, currents: 0 }, soundEnabled: false };
+}
+
+export function reduceExperience(state: ExperienceState, event: ExperienceEvent): ExperienceState {
+  if (event.type === "RESTART") return createExperience();
+  if (event.type === "SOUND_SET") return { ...state, soundEnabled: event.enabled };
+  if (event.type === "SCENE_COMPLETE") {
+    if (event.scene !== state.scene || state.completed.includes(event.scene)) return state;
+    return { ...state, completed: [...state.completed, event.scene] };
+  }
+  if (event.type === "NEXT") {
+    if (!state.completed.includes(state.scene)) return state;
+    const index = sceneOrder.indexOf(state.scene);
+    return { ...state, scene: sceneOrder[Math.min(index + 1, sceneOrder.length - 1)] };
+  }
+  const key = event.response === "curious" ? "filaments" : event.response === "compliment" ? "petals" : "currents";
+  return { ...state, growth: { ...state.growth, [key]: state.growth[key] + 1 } };
+}
