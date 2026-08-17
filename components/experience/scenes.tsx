@@ -140,32 +140,47 @@ export function GameScene({ onComplete, onReveal }: BasicProps) {
 }
 
 export function NightScene({ onComplete, onReveal }: BasicProps) {
+  const holdThreshold = 180;
   const [progress, setProgress] = useState(0);
   const interval = useRef<ReturnType<typeof setInterval> | null>(null);
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const gestureActive = useRef(false);
   const holdHandled = useRef(false);
   const suppressClick = useRef(false);
   const clickResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const completed = useRef(false);
   const revealOnce = useRevealOnce(onReveal);
   const finish = useCallback(() => { if (!completed.current) { completed.current = true; onComplete(); } }, [onComplete]);
-  const update = (amount: number) => setProgress((value) => Math.min(100, value + amount));
+  const update = useCallback((amount: number) => setProgress((value) => Math.min(100, value + amount)), []);
+  const armClickSuppression = useCallback(() => {
+    suppressClick.current = true;
+    if (clickResetTimer.current) clearTimeout(clickResetTimer.current);
+    clickResetTimer.current = setTimeout(() => { suppressClick.current = false; clickResetTimer.current = null; }, 0);
+  }, []);
   const start = () => {
-    if (interval.current) return;
+    if (gestureActive.current) return;
     if (clickResetTimer.current) clearTimeout(clickResetTimer.current);
     suppressClick.current = false;
+    gestureActive.current = true;
     holdHandled.current = false;
-    interval.current = setInterval(() => { holdHandled.current = true; update(2); }, 60);
+    holdTimer.current = setTimeout(() => {
+      holdTimer.current = null;
+      if (!gestureActive.current) return;
+      holdHandled.current = true;
+      interval.current = setInterval(() => update(2), 60);
+    }, holdThreshold);
   };
-  const stop = () => {
+  const stop = useCallback((cancelled: boolean) => {
+    if (holdTimer.current) clearTimeout(holdTimer.current);
+    holdTimer.current = null;
     if (interval.current) clearInterval(interval.current);
     interval.current = null;
-    if (holdHandled.current) {
-      suppressClick.current = true;
-      if (clickResetTimer.current) clearTimeout(clickResetTimer.current);
-      clickResetTimer.current = setTimeout(() => { suppressClick.current = false; clickResetTimer.current = null; }, 0);
-      holdHandled.current = false;
-    }
-  };
+    if (!gestureActive.current) return;
+    gestureActive.current = false;
+    if (!cancelled && !holdHandled.current) update(34);
+    if (!cancelled || holdHandled.current) armClickSuppression();
+    holdHandled.current = false;
+  }, [armClickSuppression, update]);
   const tap = () => {
     if (suppressClick.current) {
       suppressClick.current = false;
@@ -177,14 +192,15 @@ export function NightScene({ onComplete, onReveal }: BasicProps) {
   };
   useEffect(() => () => {
     if (interval.current) clearInterval(interval.current);
+    if (holdTimer.current) clearTimeout(holdTimer.current);
     if (clickResetTimer.current) clearTimeout(clickResetTimer.current);
   }, []);
   useEffect(() => {
     if (progress >= 33) revealOnce("third");
     if (progress >= 66) revealOnce("two-thirds");
-    if (progress >= 100) { revealOnce("connected"); revealOnce("frequency"); stop(); finish(); }
-  }, [finish, progress, revealOnce]);
-  return <button className="frequency-link" onPointerDown={start} onPointerUp={stop} onPointerCancel={stop} onPointerLeave={stop} onClick={tap} aria-label="按住连接深夜频率"><span className="frequency-line" style={{ width: `${progress}%` }} /><b>{progress === 100 ? "我们同频了" : "按住，或触碰三次，让两端慢慢靠近"}</b><small>{progress}%</small></button>;
+    if (progress >= 100) { revealOnce("connected"); revealOnce("frequency"); stop(true); finish(); }
+  }, [finish, progress, revealOnce, stop]);
+  return <button className="frequency-link" onPointerDown={start} onPointerUp={() => stop(false)} onPointerCancel={() => stop(true)} onPointerLeave={() => stop(true)} onClick={tap} aria-label="按住连接深夜频率"><span className="frequency-line" style={{ width: `${progress}%` }} /><b>{progress === 100 ? "我们同频了" : "按住，或触碰三次，让两端慢慢靠近"}</b><small>{progress}%</small></button>;
 }
 
 export function FinaleScene({ onComplete, onReveal, onRestart }: BasicProps & { onRestart: () => void }) {

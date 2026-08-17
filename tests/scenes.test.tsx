@@ -105,6 +105,25 @@ test("night scene supports three frequency taps as a mobile fallback", () => {
   expect(onReveal.mock.calls.map(([id]) => id)).toEqual(["third", "two-thirds", "connected", "frequency"]);
 });
 
+test("night treats brief pointer gestures as exact fallback taps", () => {
+  vi.useFakeTimers();
+  const onComplete = vi.fn();
+  const onReveal = vi.fn();
+  render(<NightScene onComplete={onComplete} onReveal={onReveal} />);
+  const link = screen.getByRole("button", { name: "按住连接深夜频率" });
+
+  for (let index = 0; index < 3; index += 1) {
+    fireEvent.pointerDown(link);
+    act(() => vi.advanceTimersByTime(100));
+    fireEvent.pointerUp(link);
+    fireEvent.click(link);
+    expect(link).toHaveTextContent(`${Math.min(100, (index + 1) * 34)}%`);
+  }
+
+  expect(onReveal.mock.calls.map(([id]) => id)).toEqual(["third", "two-thirds", "connected", "frequency"]);
+  expect(onComplete).toHaveBeenCalledOnce();
+});
+
 test("night suppresses the synthesized click after a handled hold", () => {
   vi.useFakeTimers();
   const onComplete = vi.fn();
@@ -113,7 +132,7 @@ test("night suppresses the synthesized click after a handled hold", () => {
   const link = screen.getByRole("button", { name: "按住连接深夜频率" });
 
   fireEvent.pointerDown(link);
-  act(() => vi.advanceTimersByTime(1980));
+  act(() => vi.advanceTimersByTime(2160));
   fireEvent.pointerUp(link);
   fireEvent.click(link);
 
@@ -133,10 +152,10 @@ test("night stops hold progress on pointer cancellation", () => {
   fireEvent.pointerCancel(link);
   act(() => vi.advanceTimersByTime(600));
 
-  expect(link).toHaveTextContent("4%");
+  expect(link).toHaveTextContent("0%");
   expect(onReveal).not.toHaveBeenCalled();
   fireEvent.click(link);
-  expect(link).toHaveTextContent("38%");
+  expect(link).toHaveTextContent("34%");
   expect(onReveal.mock.calls.map(([id]) => id)).toEqual(["third"]);
 });
 
