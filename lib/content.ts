@@ -1,6 +1,7 @@
 import type { ResponseType, SceneId } from "./experience";
 
 export type EchoFragment = { id: string; text: string };
+export type SignalChannelId = "little" | "rant" | "happy" | "praise";
 
 export const sceneEchoes: Record<Exclude<SceneId, "signal">, EchoFragment[]> = {
   wake: [
@@ -45,7 +46,7 @@ export const sceneEchoes: Record<Exclude<SceneId, "signal">, EchoFragment[]> = {
 };
 
 export type SignalChannel = {
-  id: string;
+  id: SignalChannelId;
   label: string;
   icon: string;
   responses: { type: ResponseType; label: string; text: string }[];
@@ -58,7 +59,7 @@ const response = (curious: string, compliment: string, ally: string): SignalChan
   { type: "ally", label: "站你这边", text: ally },
 ];
 
-const channelEchoes: Record<string, EchoFragment[]> = {
+const channelEchoes: Record<SignalChannelId, EchoFragment[]> = {
   little: [
     { id: "curious", text: "然后呢？当时还有谁在，后来又发生了什么？我不想只接住结果，也想知道小宝贝最想讲的那个细节。" },
     { id: "compliment", text: "你认真把一件小事讲给我听的样子特别可爱。那些被你注意到的小瞬间，也会因为你的表达变得闪闪发光。" },
@@ -85,12 +86,12 @@ const channelEchoes: Record<string, EchoFragment[]> = {
   ],
 };
 
-export const signalChannels: SignalChannel[] = [
+export const signalChannels = [
   { id: "little", label: "发生了小事", icon: "✦", responses: response("然后呢？哪一个瞬间最想讲给我听？", "小宝贝认真分享生活的样子，真的特别可爱。", "小事也值得被听完，我已经坐好啦。"), echoes: channelEchoes.little },
   { id: "rant", label: "想吐槽一下", icon: "⌁", responses: response("最离谱的是哪一段？从头说，我认真听。", "就算气鼓鼓的，小宝贝也还是漂亮得过分。", "吐槽频道全开。今天我无条件加入你这队。"), echoes: channelEchoes.rant },
   { id: "happy", label: "今天超开心", icon: "↑", responses: response("快告诉我，是什么让你开心成这样？", "你一开心，整片宇宙都跟着变亮了。", "那必须把快乐放大十倍，我陪你一起高兴。"), echoes: channelEchoes.happy },
   { id: "praise", label: "想被夸夸", icon: "♡", responses: response("今天最值得被夸的是哪一件？我想知道细节。", "漂亮、可爱、闪闪发光——而且只对你偏心。", "夸夸权限已拉满，谁都不许反驳。"), echoes: channelEchoes.praise },
-];
+] satisfies SignalChannel[];
 
 export const sceneCopy: Record<SceneId, { kicker: string; title: string; body: string }> = {
   wake: { kicker: "ACCESS 01", title: "只有小宝贝能进入", body: "有一个宇宙，沉睡到你触碰它的这一刻。" },
