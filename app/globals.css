@@ -11,6 +11,15 @@ button { color:inherit; -webkit-tap-highlight-color:transparent; }
 .echo-experience::before { content:""; position:absolute; inset:-30%; z-index:0; background:conic-gradient(from 210deg at 50% 50%,transparent,#30155f22,transparent,#0f8ba622,transparent); animation:nebula-spin 34s linear infinite; }
 .echo-experience::after { content:""; position:absolute; inset:0; z-index:2; pointer-events:none; opacity:.16; background-image:radial-gradient(circle at 20% 23%,#fff 0 1px,transparent 1.4px),radial-gradient(circle at 77% 68%,#82edff 0 1px,transparent 1.5px); background-size:67px 71px,91px 83px; animation:star-drift 24s linear infinite; }
 .echo-canvas { position:absolute; inset:0; z-index:1; width:100%; height:100%; touch-action:none; }
+.cinematic-plate { position:absolute; inset:0; z-index:0; pointer-events:none; opacity:.42; transition:opacity 1.1s ease,filter 1.1s ease,transform 1.4s cubic-bezier(.16,1,.3,1); background-position:center 35%; background-repeat:no-repeat; background-size:cover; filter:saturate(1.2); transform:scale(1.04); }
+.scene-is-wake .cinematic-plate { background-image:radial-gradient(circle at 50% 42%,#5ef3ff2e 0 2%,#765cff1d 8%,transparent 28%); }
+.scene-is-jealousy .cinematic-plate { background-image:linear-gradient(112deg,transparent 45%,#ff296c33 48%,#ff79a711 50%,transparent 53%),radial-gradient(ellipse at 50% 43%,#8e143b33,transparent 44%); filter:saturate(1.5) contrast(1.15); }
+.scene-is-confession .cinematic-plate { background-image:repeating-radial-gradient(ellipse at 50% 42%,transparent 0 9%,#65efff1a 9.4% 9.7%,transparent 10% 17%),radial-gradient(circle at 50% 42%,#785dff2e,transparent 34%); }
+.scene-is-privilege .cinematic-plate { background-image:repeating-conic-gradient(from 8deg at 50% 42%,#ff69c31c 0deg 8deg,transparent 12deg 48deg),radial-gradient(circle at 50% 42%,#ffc1ec22,transparent 38%); }
+.scene-is-signal .cinematic-plate { background-image:radial-gradient(circle at 18% 38%,#64efff32 0 1%,transparent 17%),radial-gradient(circle at 82% 38%,#ff6bc832 0 1%,transparent 17%),radial-gradient(circle at 50% 63%,#9c71ff32 0 1%,transparent 19%); }
+.scene-is-game .cinematic-plate { background-image:repeating-radial-gradient(ellipse at 50% 42%,transparent 0 7%,#55edff18 7.5% 7.9%,transparent 8.3% 13%); filter:contrast(1.2); transform:scale(1.18); }
+.scene-is-night .cinematic-plate { background-image:repeating-linear-gradient(0deg,transparent 0 34px,#758cff12 35px 36px,transparent 37px 70px),radial-gradient(ellipse at 50% 44%,#334d9b2c,transparent 52%); opacity:.34; }
+.scene-is-finale .cinematic-plate { background-image:linear-gradient(180deg,#02030a20 0,#02030a00 52%,#02030af5 83%),url('/og.png'); background-size:cover,contain; background-position:center,center 28%; opacity:.64; filter:saturate(1.24) contrast(1.08); transform:scale(1); animation:finale-plate-breathe 7s ease-in-out infinite alternate; }
 .vignette { position:absolute; inset:0; z-index:3; pointer-events:none; background:radial-gradient(circle at 50% 40%,transparent 28%,#02030a44 68%,#02030add 100%),linear-gradient(180deg,#02030a88 0,transparent 24%,transparent 62%,#02030aee 100%); }
 
 .experience-header { position:absolute; z-index:10; top:0; left:0; right:0; display:flex; justify-content:space-between; align-items:center; padding:calc(env(safe-area-inset-top) + 22px) max(22px,env(safe-area-inset-right)) 0 max(22px,env(safe-area-inset-left)); }
@@ -104,6 +113,7 @@ button { color:inherit; -webkit-tap-highlight-color:transparent; }
 @keyframes hold-charge { from { transform:rotate(-90deg); clip-path:polygon(50% 50%,50% 0,50% 0); } to { transform:rotate(270deg); clip-path:polygon(50% 50%,50% 0,100% 0,100% 100%,0 100%,0 0); } }
 @keyframes soft-rise { from { opacity:0; transform:translateY(8px); } }
 @keyframes wave-pulse { 50% { opacity:.35; transform:scaleY(4); } }
+@keyframes finale-plate-breathe { to { transform:scale(1.035); filter:saturate(1.42) contrast(1.12); } }
 
 @media (min-width:800px) {
   .scene-stage { left:7vw; right:auto; bottom:9vh; width:min(560px,46vw); }

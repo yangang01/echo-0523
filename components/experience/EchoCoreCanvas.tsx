@@ -7,31 +7,29 @@ import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import type { Growth, SceneId } from "../../lib/experience";
 import { createFrameTimer } from "../../lib/frame-timer";
-import { echoCoreTargets, infinityTargets, scatterTargets } from "../../lib/particles";
+import { scatterTargets, sceneParticleTargets } from "../../lib/particles";
 import { initialQuality, particleBudget } from "../../lib/quality";
 
 type Props = { scene: SceneId; growth: Growth };
 
 const vertexShader = `
   uniform float uTime;
-  uniform float uBirth;
-  uniform float uFinale;
+  uniform float uMorph;
+  uniform float uEnergy;
   uniform float uFilaments;
   uniform float uPetals;
   uniform float uCurrents;
   uniform vec2 uPointer;
   attribute vec3 aTarget;
-  attribute vec3 aInfinity;
   attribute float aSeed;
   attribute vec3 aColor;
   varying vec3 vColor;
   varying float vAlpha;
 
   void main() {
-    float easeBirth = smoothstep(0.0, 1.0, uBirth);
-    vec3 p = mix(position, aTarget, easeBirth);
-    p = mix(p, aInfinity, smoothstep(0.0, 1.0, uFinale));
-    float pulse = sin(uTime * 1.15 + aSeed * 18.0) * 0.045;
+    float morph = smoothstep(0.0, 1.0, uMorph);
+    vec3 p = mix(position, aTarget, morph);
+    float pulse = sin(uTime * (1.0 + uEnergy) + aSeed * 18.0) * (0.026 + uEnergy * 0.035);
     p *= 1.0 + pulse;
     p.x += sin(p.y * 4.0 + uTime * 1.6 + aSeed) * 0.035 * (1.0 + uFilaments * .22);
     p.y += cos(p.x * 5.0 - uTime * 1.3) * 0.026 * (1.0 + uPetals * .18);
@@ -42,11 +40,22 @@ const vertexShader = `
     p.xy += normalize(delta + .0001) * .08 / (1.0 + dot(delta, delta) * 8.0);
     vec4 mv = modelViewMatrix * vec4(p, 1.0);
     gl_Position = projectionMatrix * mv;
-    gl_PointSize = mix(2.0 + 4.0 * aSeed + uPetals * .55, 1.2 + 2.2 * aSeed, uFinale) * (7.0 / max(2.0, -mv.z));
+    gl_PointSize = (1.7 + 4.2 * aSeed + uPetals * .55 + uEnergy * .6) * (7.0 / max(2.0, -mv.z));
     vColor = aColor;
     vAlpha = .32 + .68 * aSeed;
   }
 `;
+
+const sceneStyle: Record<SceneId, { tint: string; camera: number; core: number; glass: number; rings: number; infinity: number; energy: number }> = {
+  wake: { tint: "#5beeff", camera: 6.5, core: .72, glass: .84, rings: .28, infinity: 0, energy: .18 },
+  jealousy: { tint: "#ff3d88", camera: 6.1, core: .46, glass: .42, rings: .08, infinity: 0, energy: .95 },
+  confession: { tint: "#72efff", camera: 6.8, core: .66, glass: .74, rings: 1, infinity: 0, energy: .44 },
+  privilege: { tint: "#ff72d2", camera: 6.35, core: .54, glass: .68, rings: .2, infinity: 0, energy: .62 },
+  signal: { tint: "#b385ff", camera: 6.6, core: .48, glass: .58, rings: .12, infinity: 0, energy: .72 },
+  game: { tint: "#53f0ff", camera: 5.25, core: .28, glass: .24, rings: .05, infinity: 0, energy: 1 },
+  night: { tint: "#8297ff", camera: 7.2, core: .38, glass: .38, rings: .06, infinity: 0, energy: .34 },
+  finale: { tint: "#d89bff", camera: 7.35, core: .82, glass: .88, rings: .46, infinity: 1, energy: .68 },
+};
 
 const fragmentShader = `
   varying vec3 vColor;
@@ -77,6 +86,8 @@ export function EchoCoreCanvas({ scene, growth }: Props) {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, quality === "high" ? 2 : 1.25));
     renderer.setClearColor(0x02030a, 1);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.18;
 
     const world = new THREE.Scene();
     world.fog = new THREE.FogExp2(0x03040b, 0.065);
@@ -85,8 +96,7 @@ export function EchoCoreCanvas({ scene, growth }: Props) {
 
     const geometry = new THREE.BufferGeometry();
     const scattered = new Float32Array(scatterTargets(count));
-    const target = new Float32Array(echoCoreTargets(count));
-    const infinity = new Float32Array(infinityTargets(count));
+    const target = new Float32Array(sceneParticleTargets("wake", count));
     const seeds = new Float32Array(count);
     const colors = new Float32Array(count * 3);
     const palette = [new THREE.Color("#4ef2ff"), new THREE.Color("#8e63ff"), new THREE.Color("#ff4faf"), new THREE.Color("#ffd17a")];
@@ -97,12 +107,11 @@ export function EchoCoreCanvas({ scene, growth }: Props) {
     }
     geometry.setAttribute("position", new THREE.BufferAttribute(scattered, 3));
     geometry.setAttribute("aTarget", new THREE.BufferAttribute(target, 3));
-    geometry.setAttribute("aInfinity", new THREE.BufferAttribute(infinity, 3));
     geometry.setAttribute("aSeed", new THREE.BufferAttribute(seeds, 1));
     geometry.setAttribute("aColor", new THREE.BufferAttribute(colors, 3));
 
     const uniforms = {
-      uTime: { value: 0 }, uBirth: { value: 0 }, uFinale: { value: 0 },
+      uTime: { value: 0 }, uMorph: { value: 0 }, uEnergy: { value: sceneStyle.wake.energy },
       uFilaments: { value: 0 }, uPetals: { value: 0 }, uCurrents: { value: 0 },
       uPointer: { value: new THREE.Vector2(0, 0) },
     };
@@ -122,6 +131,20 @@ export function EchoCoreCanvas({ scene, growth }: Props) {
       rings.add(ring);
     });
     world.add(rings);
+    const infinityRibbons = new THREE.Group();
+    [0, 1, 2].forEach((strand) => {
+      const points = Array.from({ length: 360 }, (_, index) => {
+        const t = (index / 360) * Math.PI * 2;
+        const offset = (strand - 1) * 0.09;
+        return new THREE.Vector3(Math.sin(t) * (2.12 + offset), Math.sin(t) * Math.cos(t) * (1.18 + offset), Math.cos(t * 3 + strand) * 0.08 + offset);
+      });
+      const ribbon = new THREE.LineLoop(
+        new THREE.BufferGeometry().setFromPoints(points),
+        new THREE.LineBasicMaterial({ color: [0x5ceeff, 0xbf6dff, 0xffcb82][strand], transparent: true, opacity: 0, blending: THREE.AdditiveBlending }),
+      );
+      infinityRibbons.add(ribbon);
+    });
+    world.add(infinityRibbons);
     world.add(new THREE.AmbientLight(0x6b75ff, 1.1));
     const light = new THREE.PointLight(0x63eeff, 18, 12);
     light.position.set(2, 2, 3);
@@ -157,28 +180,58 @@ export function EchoCoreCanvas({ scene, growth }: Props) {
 
     const timer = createFrameTimer(performance.now());
     let frame = 0;
-    let birth = 0;
-    let finale = 0;
+    let morph = 0;
+    let activeScene: SceneId = "wake";
+    const tint = new THREE.Color(sceneStyle.wake.tint);
+    const desiredTint = new THREE.Color(sceneStyle.wake.tint);
     const render = () => {
       const { delta, elapsed } = timer.tick(performance.now());
       const current = liveRef.current;
-      birth = THREE.MathUtils.lerp(birth, current.scene === "wake" ? 0.18 : 1, delta * 1.6);
-      finale = THREE.MathUtils.lerp(finale, current.scene === "finale" ? 1 : 0, delta * 0.85);
+      if (current.scene !== activeScene) {
+        const source = geometry.getAttribute("position") as THREE.BufferAttribute;
+        const destination = geometry.getAttribute("aTarget") as THREE.BufferAttribute;
+        for (let index = 0; index < source.count; index += 1) {
+          source.setXYZ(index,
+            THREE.MathUtils.lerp(source.getX(index), destination.getX(index), morph),
+            THREE.MathUtils.lerp(source.getY(index), destination.getY(index), morph),
+            THREE.MathUtils.lerp(source.getZ(index), destination.getZ(index), morph),
+          );
+        }
+        source.needsUpdate = true;
+        destination.copyArray(sceneParticleTargets(current.scene, count));
+        destination.needsUpdate = true;
+        activeScene = current.scene;
+        morph = 0;
+      }
+      const style = sceneStyle[current.scene];
+      morph = Math.min(1, morph + delta * .62);
       uniforms.uTime.value = elapsed;
-      uniforms.uBirth.value = birth;
-      uniforms.uFinale.value = finale;
+      uniforms.uMorph.value = morph;
+      uniforms.uEnergy.value = THREE.MathUtils.lerp(uniforms.uEnergy.value, style.energy, delta * 2.4);
       uniforms.uFilaments.value = THREE.MathUtils.lerp(uniforms.uFilaments.value, current.growth.filaments, delta * 3);
       uniforms.uPetals.value = THREE.MathUtils.lerp(uniforms.uPetals.value, current.growth.petals, delta * 3);
       uniforms.uCurrents.value = THREE.MathUtils.lerp(uniforms.uCurrents.value, current.growth.currents, delta * 3);
       uniforms.uPointer.value.lerp(pointer, delta * 2.8);
-      particles.rotation.y = elapsed * 0.045 + pointer.x * 0.12;
-      particles.rotation.x = pointer.y * 0.08;
+      desiredTint.set(style.tint);
+      tint.lerp(desiredTint, delta * 2.2);
+      particles.rotation.y = elapsed * (current.scene === "game" ? .13 : .045) + pointer.x * 0.12;
+      particles.rotation.x = pointer.y * 0.08 + (current.scene === "game" ? .18 : 0);
       core.rotation.y = elapsed * 0.18;
       core.rotation.x = elapsed * 0.11;
-      core.scale.setScalar(0.72 + birth * 0.28 + Math.sin(elapsed * 1.3) * 0.025);
-      (core.material as THREE.MeshPhysicalMaterial).opacity = 0.82 - finale * 0.62;
+      core.scale.setScalar(style.core + Math.sin(elapsed * 1.3) * 0.025);
+      const coreMaterial = core.material as THREE.MeshPhysicalMaterial;
+      coreMaterial.opacity = THREE.MathUtils.lerp(coreMaterial.opacity, style.glass, delta * 2.2);
+      coreMaterial.color.lerp(tint, delta * 1.8);
+      rings.children.forEach((object) => { ((object as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity = style.rings * .58; });
       rings.rotation.y = -elapsed * 0.07;
       rings.rotation.z = elapsed * 0.035;
+      infinityRibbons.visible = style.infinity > .01;
+      infinityRibbons.children.forEach((object, index) => {
+        ((object as THREE.Line).material as THREE.LineBasicMaterial).opacity = style.infinity * (.38 + index * .12);
+      });
+      infinityRibbons.rotation.y = pointer.x * .08;
+      infinityRibbons.scale.setScalar(.94 + Math.sin(elapsed * .9) * .018);
+      camera.position.z = THREE.MathUtils.lerp(camera.position.z, style.camera, delta * 1.5);
       composer ? composer.render() : renderer.render(world, camera);
       frame = requestAnimationFrame(render);
     };
@@ -196,10 +249,13 @@ export function EchoCoreCanvas({ scene, growth }: Props) {
       rings.traverse((object) => {
         if (object instanceof THREE.Mesh) { object.geometry.dispose(); (object.material as THREE.Material).dispose(); }
       });
+      infinityRibbons.traverse((object) => {
+        if (object instanceof THREE.Line) { object.geometry.dispose(); (object.material as THREE.Material).dispose(); }
+      });
       composer?.dispose();
       renderer.dispose();
     };
   }, []);
 
-  return <canvas ref={canvasRef} className="echo-canvas" aria-label="0523 回音星核动态视觉" />;
+  return <canvas ref={canvasRef} className="echo-canvas" data-sculpture={scene} aria-label="0523 回音星核动态视觉" />;
 }

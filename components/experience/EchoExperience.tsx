@@ -29,6 +29,7 @@ export function EchoExperience() {
   }, [complete, state.scene]);
 
   return <main className={`echo-experience scene-is-${state.scene}`} aria-label="0523 回音星核">
+    <div className="cinematic-plate" aria-hidden="true" />
     <EchoCoreCanvas scene={state.scene} growth={state.growth} />
     <div className="vignette" aria-hidden="true" />
     <header className="experience-header"><div className="brand"><span className="brand-mark">05·23</span><span>ECHO CORE</span></div><button className="sound-button" aria-label={sound ? "关闭声音" : "开启声音"} onClick={() => setSound((value) => !value)}>{sound ? "声场 ON" : "声场 OFF"}</button></header>
