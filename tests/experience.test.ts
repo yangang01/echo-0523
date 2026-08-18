@@ -7,6 +7,21 @@ test("advances only when the current scene completes", () => {
   expect(reduceExperience(ready, { type: "NEXT" }).scene).toBe("jealousy");
 });
 
+test("ADVANCE_TO accepts only the canonical next scene after completion", () => {
+  const initial = createExperience();
+  const completed = reduceExperience(initial, { type: "SCENE_COMPLETE", scene: "wake" });
+  const advanced = reduceExperience(completed, { type: "ADVANCE_TO", from: "wake", to: "jealousy" });
+  expect(advanced.scene).toBe("jealousy");
+});
+
+test("ADVANCE_TO treats stale and skipped destinations as exact no-ops", () => {
+  const initial = createExperience();
+  const completed = reduceExperience(initial, { type: "SCENE_COMPLETE", scene: "wake" });
+  expect(reduceExperience(completed, { type: "ADVANCE_TO", from: "jealousy", to: "confession" })).toBe(completed);
+  expect(reduceExperience(completed, { type: "ADVANCE_TO", from: "wake", to: "confession" })).toBe(completed);
+  expect(reduceExperience(initial, { type: "ADVANCE_TO", from: "wake", to: "jealousy" })).toBe(initial);
+});
+
 test("maps response types to independent echo-core growth channels", () => {
   let state = createExperience("signal");
   state = reduceExperience(state, { type: "RESPONSE_SELECTED", response: "curious" });
