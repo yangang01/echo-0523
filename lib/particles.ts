@@ -1,5 +1,27 @@
 import type { SceneId } from "./experience";
 
+export type Vec3Tuple = [number, number, number];
+export type TargetMode = "entry" | "present" | "exit";
+
+type GravityAnchors = { y: Readonly<Vec3Tuple>; u: Readonly<Vec3Tuple> };
+
+const gravityAnchors: Record<SceneId, GravityAnchors> = {
+  wake: { y: [-1.35, 0.72, 0.15], u: [0.72, 0.12, 0] },
+  jealousy: { y: [-0.98, 0.42, 0.24], u: [0.74, 0.12, -0.08] },
+  confession: { y: [-0.62, 0.55, 0.08], u: [0.58, 0.1, -0.05] },
+  privilege: { y: [-0.35, 0.35, 0.08], u: [0.32, 0.08, 0] },
+  signal: { y: [-0.72, 0.18, 0.15], u: [0.72, 0.18, -0.12] },
+  game: { y: [-0.46, 0.08, 0.3], u: [0.46, 0.08, -0.3] },
+  night: { y: [-0.3, 0.14, 0.1], u: [0.3, 0.14, -0.1] },
+  finale: { y: [-0.12, 0.2, 0.04], u: [0.12, 0.08, -0.04] },
+};
+
+/** Returns fresh tuples so callers cannot mutate the persistent anchor definitions. */
+export function sceneGravityAnchors(scene: SceneId): { y: Vec3Tuple; u: Vec3Tuple } {
+  const anchors = gravityAnchors[scene];
+  return { y: [...anchors.y], u: [...anchors.u] };
+}
+
 function randomSource(seed: number) {
   let value = seed | 0;
   return () => {
@@ -60,8 +82,41 @@ function sculpt(count: number, seed: number, point: (t: number, random: () => nu
   return values;
 }
 
-export function sceneParticleTargets(scene: SceneId, count: number): number[] {
-  if (scene === "finale") return infinityTargets(count);
+function normalizedParticleCount(count: number): number {
+  return Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0;
+}
+
+function finaleYuTargets(count: number): number[] {
+  const values = new Array<number>(count * 3);
+  const leftEnd = Math.floor(count * 0.22);
+  const rightEnd = Math.floor(count * 0.44);
+  const stemEnd = Math.floor(count * 0.62);
+  const progress = (index: number, start: number, end: number) => (end - start <= 1 ? 0.5 : (index - start) / (end - start - 1));
+
+  for (let index = 0; index < count; index += 1) {
+    let point: Vec3Tuple;
+    if (index < leftEnd) {
+      const t = progress(index, 0, leftEnd);
+      point = [-1.4 * (1 - t), 1.15 - t * 0.9, Math.sin(t * Math.PI) * -0.035];
+    } else if (index < rightEnd) {
+      const t = progress(index, leftEnd, rightEnd);
+      point = [1.4 * (1 - t), 1.15 - t * 0.9, Math.sin(t * Math.PI) * 0.035];
+    } else if (index < stemEnd) {
+      const t = progress(index, rightEnd, stemEnd);
+      point = [Math.sin(t * Math.PI) * 0.025, 0.25 - t * 0.95, Math.sin(t * Math.PI) * 0.025];
+    } else {
+      const t = progress(index, stemEnd, count);
+      point = [-1.4 + t * 2.8, -1.15 - Math.sin(t * Math.PI) * 0.8, Math.cos(t * Math.PI) * 0.05];
+    }
+    values[index * 3] = point[0];
+    values[index * 3 + 1] = point[1];
+    values[index * 3 + 2] = point[2];
+  }
+  return values;
+}
+
+function presentSceneParticleTargets(scene: SceneId, count: number): number[] {
+  if (scene === "finale") return finaleYuTargets(count);
 
   if (scene === "wake") {
     return sculpt(count, 52301, (t, random) => {
@@ -120,6 +175,39 @@ export function sceneParticleTargets(scene: SceneId, count: number): number[] {
     const y = Math.sin(x * 2.7 + lane * 0.85) * 0.72 + lane * 0.48;
     return [x, y, (random() - 0.5) * 0.38 + Math.cos(x * 1.8) * 0.12];
   });
+}
+
+function transformTargetMode(targets: number[], anchor: Readonly<Vec3Tuple>, scale: number, rotationY: number): number[] {
+  const cos = Math.cos(rotationY);
+  const sin = Math.sin(rotationY);
+  const transformed = new Array<number>(targets.length);
+  for (let index = 0; index < targets.length; index += 3) {
+    const x = targets[index];
+    const z = targets[index + 2];
+    transformed[index] = anchor[0] + (x * cos - z * sin) * scale;
+    transformed[index + 1] = anchor[1] + targets[index + 1] * scale;
+    transformed[index + 2] = anchor[2] + (x * sin + z * cos) * scale;
+  }
+  return transformed;
+}
+
+/** Fractional counts are floored and all non-finite or negative counts become zero. */
+export function sceneParticleTargets(scene: SceneId, count: number, mode: TargetMode = "present"): number[] {
+  const normalizedCount = normalizedParticleCount(count);
+  const present = presentSceneParticleTargets(scene, normalizedCount);
+  if (mode === "present") return present;
+
+  const anchors = gravityAnchors[scene];
+  return mode === "entry"
+    ? transformTargetMode(present, anchors.u, 0.45, -0.2)
+    : transformTargetMode(present, anchors.y, 0.32, 0.26);
+}
+
+export function transitionParticleTargets(from: SceneId, to: SceneId, count: number): { exit: number[]; entry: number[] } {
+  return {
+    exit: sceneParticleTargets(from, count, "exit"),
+    entry: sceneParticleTargets(to, count, "entry"),
+  };
 }
 
 export function sceneRotationY(scene: SceneId, elapsed: number, pointerX: number): number {
