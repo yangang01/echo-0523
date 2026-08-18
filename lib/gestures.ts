@@ -8,9 +8,9 @@ export function attractionProgress(point: Point, target: Point, radius: number) 
 
   if (attracted) return { progress: 1, attracted: true };
 
-  const forgivingRadius = Math.max(radius, 1);
+  const forgivingDenominator = Math.max(radius * 2, 1);
   return {
-    progress: Math.max(0, 1 - (distance - radius) / (forgivingRadius * 2)),
+    progress: Math.max(0, 1 - (distance - radius) / forgivingDenominator),
     attracted: false,
   };
 }

@@ -11,7 +11,7 @@ test("attraction includes the radius boundary and forgives points beyond it", ()
 });
 
 test("attraction guards a zero radius denominator", () => {
-  expect(attractionProgress({ x: 1, y: 0 }, { x: 0, y: 0 }, 0)).toEqual({ progress: 0.5, attracted: false });
+  expect(attractionProgress({ x: 1, y: 0 }, { x: 0, y: 0 }, 0)).toEqual({ progress: 0, attracted: false });
 });
 
 test("classifies a long upward swipe", () => {

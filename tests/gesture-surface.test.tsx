@@ -42,6 +42,28 @@ test("an upward pointer gesture advances once and balances pause", () => {
   expect(releasePointerCapture).toHaveBeenCalledWith(4);
 });
 
+test("unmount releases an active pointer once and removes later gesture callbacks", () => {
+  vi.useFakeTimers();
+  const { onAdvance, onPause, surface, unmount } = renderSurface();
+  const releasePointerCapture = vi.fn();
+  const clearTimeoutSpy = vi.spyOn(globalThis, "clearTimeout");
+  Object.assign(surface, { releasePointerCapture });
+
+  fireEvent.pointerDown(surface, { clientX: 20, clientY: 160, pointerId: 6 });
+  fireEvent.wheel(surface, { deltaY: 50 });
+  expect(onAdvance).toHaveBeenCalledOnce();
+  unmount();
+  expect(releasePointerCapture).toHaveBeenCalledWith(6);
+  expect(onPause.mock.calls).toEqual([[true], [false]]);
+  expect(clearTimeoutSpy).toHaveBeenCalled();
+
+  document.dispatchEvent(new Event("visibilitychange"));
+  act(() => vi.advanceTimersByTime(400));
+  expect(releasePointerCapture).toHaveBeenCalledOnce();
+  expect(onPause.mock.calls).toEqual([[true], [false]]);
+  expect(onAdvance).toHaveBeenCalledOnce();
+});
+
 test("cancelled and horizontal pointer gestures never advance and balance pause", () => {
   const { onAdvance, onPause, surface } = renderSurface();
 
@@ -89,6 +111,19 @@ test("eligible keyboard gestures advance once and prevent their defaults", () =>
   fireEvent.keyDown(surface, { key: "ArrowUp" });
 
   expect(onAdvance).toHaveBeenCalledTimes(3);
+});
+
+test("the focusable surface uses group semantics and safely contains interactive children", () => {
+  const { getByTestId, getByRole } = render(
+    <GestureSurface enabled onAdvance={vi.fn()} onPause={vi.fn()}>
+      <button type="button">Inner control</button>
+    </GestureSurface>,
+  );
+  const surface = getByTestId("gesture-surface");
+
+  expect(surface).toHaveAttribute("role", "group");
+  expect(surface).not.toHaveAttribute("role", "button");
+  expect(getByRole("button", { name: "Inner control" })).toBeInTheDocument();
 });
 
 test("visibility cancellation releases an active gesture and unmount clears listeners and wheel timers", () => {

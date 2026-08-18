@@ -43,7 +43,11 @@ export function GestureSurface({ enabled, onAdvance, onPause, children }: Gestur
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       document.removeEventListener("visibilitychange", onVisibilityChange);
-      if (wheelTimerRef.current) clearTimeout(wheelTimerRef.current);
+      releaseGesture();
+      if (wheelTimerRef.current) {
+        clearTimeout(wheelTimerRef.current);
+        wheelTimerRef.current = null;
+      }
     };
   }, [releaseGesture]);
 
@@ -84,16 +88,18 @@ export function GestureSurface({ enabled, onAdvance, onPause, children }: Gestur
   };
 
   return (
+    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- This focusable group provides cinematic navigation keys without falsely presenting its arbitrary children as one button.
     <div
       className="gesture-surface"
       data-testid="gesture-surface"
-      role="button"
-      aria-label="Cinematic gesture controls"
+      role="group"
+      aria-label="电影场景手势控制"
       onKeyDown={handleKeyDown}
       onPointerCancel={releaseGesture}
       onPointerDown={handlePointerDown}
       onPointerUp={handlePointerUp}
       onWheel={handleWheel}
+      // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- This group must receive the specified keyboard gestures.
       tabIndex={0}
     >
       {children}
