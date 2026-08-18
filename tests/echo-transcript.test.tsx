@@ -7,6 +7,16 @@ const fragments = [
   { id: "three", text: "第三段回音" },
 ];
 
+function pointer(target: Element | Document | Window, type: string, init: { pointerId: number; isPrimary?: boolean; button?: number }) {
+  const event = new Event(type, { bubbles: true, cancelable: true });
+  Object.defineProperties(event, {
+    pointerId: { value: init.pointerId },
+    button: { value: init.button ?? 0 },
+    isPrimary: { value: init.isPrimary ?? true },
+  });
+  fireEvent(target, event);
+}
+
 test("shows only the active unlocked fragment and supports review", () => {
   const onSelect = vi.fn();
   render(<EchoTranscript fragments={fragments} unlocked={["one", "two"]} activeId="two" onSelect={onSelect} />);
@@ -117,13 +127,13 @@ test("reports pointer reading while keeping the stable live region mounted", () 
   );
   const status = screen.getByRole("status");
 
-  fireEvent.pointerDown(status, { pointerId: 4 });
+  pointer(status, "pointerdown", { pointerId: 4 });
   expect(onReadingChange).toHaveBeenLastCalledWith(true);
   rerender(
     <EchoTranscript fragments={fragments} unlocked={["one", "two"]} activeId="two" onSelect={() => {}} onReadingChange={onReadingChange} />,
   );
   expect(screen.getByRole("status")).toBe(status);
-  fireEvent.pointerUp(status, { pointerId: 4 });
+  pointer(status, "pointerup", { pointerId: 4 });
   expect(onReadingChange).toHaveBeenLastCalledWith(false);
 });
 
@@ -142,4 +152,94 @@ test("pauses across marker focus changes and resumes only when focus leaves the 
   fireEvent.focus(second, { relatedTarget: first });
   fireEvent.blur(second, { relatedTarget: document.body });
   expect(onReadingChange).toHaveBeenLastCalledWith(false);
+});
+
+test("owns one primary review pointer and balances release outside the live region", () => {
+  const onReadingChange = vi.fn();
+  render(
+    <EchoTranscript fragments={fragments} unlocked={["one"]} activeId="one" onSelect={() => {}} onReadingChange={onReadingChange} />,
+  );
+  const status = screen.getByRole("status");
+  const release = vi.fn();
+  Object.assign(status, { setPointerCapture: vi.fn(), hasPointerCapture: () => true, releasePointerCapture: release });
+
+  pointer(status, "pointerdown", { pointerId: 7 });
+  pointer(status, "pointerdown", { pointerId: 8 });
+  pointer(window, "pointerup", { pointerId: 8 });
+  expect(onReadingChange.mock.calls).toEqual([[true]]);
+  pointer(window, "pointerup", { pointerId: 7 });
+  expect(onReadingChange.mock.calls).toEqual([[true], [false]]);
+  expect(release).toHaveBeenCalledWith(7);
+});
+
+test("balances pointer cancellation, lost capture, and window blur without duplicate resumes", () => {
+  const onReadingChange = vi.fn();
+  render(
+    <EchoTranscript fragments={fragments} unlocked={["one"]} activeId="one" onSelect={() => {}} onReadingChange={onReadingChange} />,
+  );
+  const status = screen.getByRole("status");
+
+  pointer(status, "pointerdown", { pointerId: 1 });
+  pointer(status, "lostpointercapture", { pointerId: 1 });
+  pointer(window, "pointerup", { pointerId: 1 });
+  pointer(status, "pointerdown", { pointerId: 2 });
+  pointer(window, "pointercancel", { pointerId: 2 });
+  fireEvent(window, new Event("blur"));
+  pointer(status, "pointerdown", { pointerId: 3 });
+  fireEvent(window, new Event("blur"));
+
+  expect(onReadingChange.mock.calls).toEqual([[true], [false], [true], [false], [true], [false]]);
+});
+
+test("unmount releases an owned review pointer and resumes exactly once", () => {
+  const onReadingChange = vi.fn();
+  const view = render(
+    <EchoTranscript fragments={fragments} unlocked={["one"]} activeId="one" onSelect={() => {}} onReadingChange={onReadingChange} />,
+  );
+  pointer(screen.getByRole("status"), "pointerdown", { pointerId: 3 });
+  view.unmount();
+  expect(onReadingChange.mock.calls).toEqual([[true], [false]]);
+});
+
+test("page hiding clears owned pointer and focus review sources", () => {
+  const onReadingChange = vi.fn();
+  render(
+    <EchoTranscript fragments={fragments} unlocked={["one"]} activeId="one" onSelect={() => {}} onReadingChange={onReadingChange} />,
+  );
+  const status = screen.getByRole("status");
+  pointer(status, "pointerdown", { pointerId: 9 });
+  const descriptor = Object.getOwnPropertyDescriptor(document, "visibilityState");
+  try {
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+    fireEvent(document, new Event("visibilitychange"));
+    expect(onReadingChange.mock.calls).toEqual([[true], [false]]);
+  } finally {
+    if (descriptor) Object.defineProperty(document, "visibilityState", descriptor);
+    else delete (document as { visibilityState?: DocumentVisibilityState }).visibilityState;
+  }
+});
+
+test("focus and pointer review sources overlap without clearing each other", () => {
+  const onReadingChange = vi.fn();
+  render(
+    <EchoTranscript fragments={fragments} unlocked={["one", "two"]} activeId="two" onSelect={() => {}} onReadingChange={onReadingChange} />,
+  );
+  const marker = screen.getByRole("button", { name: "回看第 1 段" });
+  const status = screen.getByRole("status");
+
+  fireEvent.focus(marker);
+  pointer(status, "pointerdown", { pointerId: 5 });
+  pointer(window, "pointerup", { pointerId: 5 });
+  expect(onReadingChange.mock.calls).toEqual([[true]]);
+  fireEvent.blur(marker, { relatedTarget: document.body });
+  expect(onReadingChange.mock.calls).toEqual([[true], [false]]);
+});
+
+test("ignores non-primary review pointers", () => {
+  const onReadingChange = vi.fn();
+  render(
+    <EchoTranscript fragments={fragments} unlocked={["one"]} activeId="one" onSelect={() => {}} onReadingChange={onReadingChange} />,
+  );
+  pointer(screen.getByRole("status"), "pointerdown", { pointerId: 4, isPrimary: false });
+  expect(onReadingChange).not.toHaveBeenCalled();
 });
