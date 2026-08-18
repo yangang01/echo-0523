@@ -27,10 +27,27 @@ test("renders the transcript as a compact cinematic glass panel", () => {
 test("animates the scan and copy while preserving marker states", () => {
   expect(ruleFor(".echo-transcript-reveal::before")).toMatch(/animation:\s*echo-scan/);
   expect(ruleFor(".echo-transcript-copy")).toMatch(/animation:\s*echo-copy-in/);
-  expect(ruleFor(".echo-transcript-markers button.active")).toMatch(/box-shadow:/);
+  expect(ruleFor(".echo-transcript-markers button.active::before")).toMatch(/box-shadow:/);
   expect(ruleFor(".echo-transcript-markers button:disabled")).toMatch(/cursor:\s*not-allowed/);
   expect(css).toMatch(/@keyframes\s+echo-scan/);
   expect(css).toMatch(/@keyframes\s+echo-copy-in/);
+});
+
+test("keeps transcript markers visually compact with unambiguous 44px touch targets", () => {
+  const markers = ruleFor(".echo-transcript-markers");
+  expectDeclaration(markers, "gap", /4px/);
+  expectDeclaration(markers, "margin-top", /2px/);
+
+  const button = ruleFor(".echo-transcript-markers button");
+  expectDeclaration(button, "width", /44px/);
+  expectDeclaration(button, "height", /44px/);
+  expectDeclaration(button, "position", /relative/);
+
+  const dot = ruleFor(".echo-transcript-markers button::before");
+  expectDeclaration(dot, "width", /7px/);
+  expectDeclaration(dot, "height", /7px/);
+  expectDeclaration(dot, "pointer-events", /none/);
+  expect(button).not.toMatch(/margin:\s*[^;]*-/);
 });
 
 test("collapses an empty transcript and keeps desktop copy aligned", () => {
@@ -77,6 +94,14 @@ test("mobile cinematic shell uses dynamic viewport and safe areas", () => {
   expectDeclaration(gestureSurface, "position", /absolute/);
   expectDeclaration(gestureSurface, "inset", /0/);
   expectDeclaration(gestureSurface, "z-index", /4/);
+});
+
+test("sound control remains a 44px target through the short-screen cascade", () => {
+  expectDeclaration(ruleFor(".sound-button"), "min-height", /44px/);
+  expect(css).toMatch(
+    /@media\s*\(max-height:\s*680px\)[\s\S]*?\.sound-button\s*\{[^}]*min-height:\s*44px/,
+  );
+  expect(css).not.toMatch(/@media\s*\(max-height:\s*680px\)[\s\S]*?\.sound-button\s*\{[^}]*min-height:\s*(?:[0-3]\d|4[0-3])px/);
 });
 
 test("only the opening gravity control suppresses selection and touch callouts", () => {
