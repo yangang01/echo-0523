@@ -2,6 +2,8 @@ import type { SceneId } from "./experience";
 
 export type Vec3Tuple = [number, number, number];
 export type TargetMode = "entry" | "present" | "exit";
+/** Hard cap for scene-target allocation; legacy standalone target generators retain their original contracts. */
+export const MAX_PARTICLE_COUNT = 100_000;
 
 type GravityAnchors = { y: Readonly<Vec3Tuple>; u: Readonly<Vec3Tuple> };
 
@@ -83,30 +85,42 @@ function sculpt(count: number, seed: number, point: (t: number, random: () => nu
 }
 
 function normalizedParticleCount(count: number): number {
-  return Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0;
+  return Number.isFinite(count) ? Math.min(MAX_PARTICLE_COUNT, Math.max(0, Math.floor(count))) : 0;
 }
 
+/**
+ * Stable finale allocation: 20% left Y branch, 20% right Y branch, 18% stem,
+ * then a continuous U of 13% left limb, 16% bowl, and 13% right limb.
+ */
 function finaleYuTargets(count: number): number[] {
   const values = new Array<number>(count * 3);
-  const leftEnd = Math.floor(count * 0.22);
-  const rightEnd = Math.floor(count * 0.44);
-  const stemEnd = Math.floor(count * 0.62);
+  const leftYEnd = Math.floor(count * 0.2);
+  const rightYEnd = Math.floor(count * 0.4);
+  const stemEnd = Math.floor(count * 0.58);
+  const leftULimbEnd = Math.floor(count * 0.71);
+  const bowlEnd = Math.floor(count * 0.87);
   const progress = (index: number, start: number, end: number) => (end - start <= 1 ? 0.5 : (index - start) / (end - start - 1));
 
   for (let index = 0; index < count; index += 1) {
     let point: Vec3Tuple;
-    if (index < leftEnd) {
-      const t = progress(index, 0, leftEnd);
-      point = [-1.4 * (1 - t), 1.15 - t * 0.9, Math.sin(t * Math.PI) * -0.035];
-    } else if (index < rightEnd) {
-      const t = progress(index, leftEnd, rightEnd);
-      point = [1.4 * (1 - t), 1.15 - t * 0.9, Math.sin(t * Math.PI) * 0.035];
+    if (index < leftYEnd) {
+      const t = progress(index, 0, leftYEnd);
+      point = [-1.1 * (1 - t), 1.15 - t * 0.9, Math.sin(t * Math.PI) * -0.035];
+    } else if (index < rightYEnd) {
+      const t = progress(index, leftYEnd, rightYEnd);
+      point = [1.1 * (1 - t), 1.15 - t * 0.9, Math.sin(t * Math.PI) * 0.035];
     } else if (index < stemEnd) {
-      const t = progress(index, rightEnd, stemEnd);
-      point = [Math.sin(t * Math.PI) * 0.025, 0.25 - t * 0.95, Math.sin(t * Math.PI) * 0.025];
+      const t = progress(index, rightYEnd, stemEnd);
+      point = [Math.sin(t * Math.PI) * 0.025, 0.25 - t * 1.35, Math.sin(t * Math.PI) * 0.025];
+    } else if (index < leftULimbEnd) {
+      const t = progress(index, stemEnd, leftULimbEnd);
+      point = [-1.4, 1.15 - t * 2.3, 0];
+    } else if (index < bowlEnd) {
+      const t = progress(index, leftULimbEnd, bowlEnd);
+      point = [-1.4 + t * 2.8, -1.15 - Math.sin(t * Math.PI) * 0.8, 0];
     } else {
-      const t = progress(index, stemEnd, count);
-      point = [-1.4 + t * 2.8, -1.15 - Math.sin(t * Math.PI) * 0.8, Math.cos(t * Math.PI) * 0.05];
+      const t = progress(index, bowlEnd, count);
+      point = [1.4, -1.15 + t * 2.3, 0];
     }
     values[index * 3] = point[0];
     values[index * 3 + 1] = point[1];
