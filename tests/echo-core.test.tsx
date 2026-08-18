@@ -1,16 +1,20 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { render, waitFor } from "@testing-library/react";
+import { act, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { EchoCoreCanvas } from "../components/experience/EchoCoreCanvas";
 import {
+  bakeMorphPosition,
+  dampTrailPositions,
   motionEnvelope,
+  morphProgress,
+  narrativeTrailTargets,
   phaseTargetMode,
   TwinGravityCanvas,
 } from "../components/experience/TwinGravityCanvas";
 import type { MotionCue } from "../lib/scene-timelines";
 
-const rendererState = vi.hoisted(() => ({ throws: false, constructs: 0, dispose: vi.fn() }));
+const rendererState = vi.hoisted(() => ({ throws: false, setSizeThrows: false, constructs: 0, dispose: vi.fn() }));
 
 vi.mock("three", async (importOriginal) => {
   const actual = await importOriginal<typeof import("three")>();
@@ -27,7 +31,9 @@ vi.mock("three", async (importOriginal) => {
 
       setPixelRatio() {}
       setClearColor() {}
-      setSize() {}
+      setSize() {
+        if (rendererState.setSizeThrows) throw new Error("resize failed");
+      }
       render() {}
       dispose() { rendererState.dispose(); }
       outputColorSpace = actual.SRGBColorSpace;
@@ -50,6 +56,7 @@ beforeEach(() => {
   vi.stubGlobal("requestAnimationFrame", vi.fn(() => 17));
   vi.stubGlobal("cancelAnimationFrame", vi.fn());
   rendererState.throws = false;
+  rendererState.setSizeThrows = false;
   rendererState.constructs = 0;
   rendererState.dispose.mockClear();
 });
@@ -122,6 +129,36 @@ test("maps phases to stable particle target modes", () => {
   expect(phaseTargetMode("exit")).toBe("exit");
 });
 
+test("uses the shader smoothstep curve when baking an interrupted particle morph", () => {
+  expect([0, 0.25, 0.5, 0.75, 1].map(morphProgress)).toEqual([0, 0.15625, 0.5, 0.84375, 1]);
+  expect(morphProgress(0.25)).not.toBe(0.25);
+  expect(bakeMorphPosition([0, 10, 20], [8, 18, 28], 0.25)).toEqual([1.25, 11.25, 21.25]);
+});
+
+test("generates deterministic finite and distinct trail topology for every cue and side", () => {
+  const cues: MotionCue[] = ["attract", "disrupt", "lock", "orbit", "reply", "tunnel", "sync", "infinity"];
+
+  for (const side of [-1, 1] as const) {
+    const targets = cues.map((cue) => narrativeTrailTargets(cue, side, 24));
+    targets.forEach((target, index) => {
+      expect(target).toHaveLength(24 * 3);
+      expect(target.every(Number.isFinite)).toBe(true);
+      expect(target).toEqual(narrativeTrailTargets(cues[index], side, 24));
+    });
+    expect(new Set(targets.map((target) => JSON.stringify(target))).size).toBe(cues.length);
+  }
+  expect(narrativeTrailTargets("attract", -1)).toHaveLength(96 * 3);
+  expect(narrativeTrailTargets("attract", -1)).not.toEqual(narrativeTrailTargets("attract", 1));
+});
+
+test("damps persistent trail positions in place without recreating their storage", () => {
+  const positions = new Float32Array([0, 10, -2]);
+  const target = new Float32Array([10, 0, 2]);
+
+  expect(dampTrailPositions(positions, target, 0.25)).toBe(positions);
+  expect(Array.from(positions)).toEqual([2.5, 7.5, -1]);
+});
+
 test("defines a distinct envelope for every closed motion cue", () => {
   const cues: MotionCue[] = ["attract", "disrupt", "lock", "orbit", "reply", "tunnel", "sync", "infinity"];
   const envelopes = cues.map((cue) => motionEnvelope(cue));
@@ -147,9 +184,33 @@ test("twin-gravity source wires choreography, shader safety, visibility reset, a
 
   for (const token of [
     "sceneGravityAnchors", "sceneParticleTargets", "sceneTimelines", "uPhase", "uGravityY", "uGravityU",
-    "uShockwave", "uTrailEnergy", "document.hidden", "timer.reset(performance.now())", "removeEventListener(\"visibilitychange\"",
+    "uShockwave", "uTrailEnergy", "document.hidden", "timer.reset(performance.now())", "cleanupListeners",
   ]) expect(source).toContain(token);
   expect(source).toMatch(/Math\.min\(delta,\s*1\s*\/\s*20\)/);
   expect(source).toContain("max(dot(toY, toY)");
   expect(source).toContain("max(dot(toU, toU)");
+  expect(source).toContain("narrativeTrailTargets(sceneTimelines[current.scene].motion");
+});
+
+test("cleans every registered listener when initialization fails after registration", async () => {
+  rendererState.setSizeThrows = true;
+  const windowRemove = vi.spyOn(window, "removeEventListener");
+  const documentRemove = vi.spyOn(document, "removeEventListener");
+  const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+  const view = render(<TwinGravityCanvas scene="wake" phase="present" growth={growth} />);
+
+  await waitFor(() => expect(document.querySelector('[role="img"][aria-label="Y 融入 U 的双星星徽"]')).toBeInTheDocument());
+  expect(windowRemove).toHaveBeenCalledWith("pointermove", expect.any(Function));
+  expect(windowRemove).toHaveBeenCalledWith("deviceorientation", expect.any(Function));
+  expect(windowRemove).toHaveBeenCalledWith("resize", expect.any(Function));
+  expect(documentRemove).toHaveBeenCalledWith("visibilitychange", expect.any(Function));
+
+  view.unmount();
+  const immediateUnmount = render(<TwinGravityCanvas scene="wake" phase="present" growth={growth} />);
+  immediateUnmount.unmount();
+  await act(async () => { await Promise.resolve(); });
+  expect(errors).not.toHaveBeenCalled();
+  errors.mockRestore();
+  windowRemove.mockRestore();
+  documentRemove.mockRestore();
 });

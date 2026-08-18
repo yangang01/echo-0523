@@ -50,6 +50,108 @@ export function motionEnvelope(cue: MotionCue, reducedMotion = false): MotionEnv
   return { ...envelope, cameraZ: 6.9, cameraDrift: 0, shockwave: 0, spin: 0 };
 }
 
+export function morphProgress(value: number): number {
+  const t = THREE.MathUtils.clamp(value, 0, 1);
+  return t * t * (3 - 2 * t);
+}
+
+export function bakeMorphPosition(
+  source: readonly [number, number, number],
+  target: readonly [number, number, number],
+  morph: number,
+): [number, number, number] {
+  const progress = morphProgress(morph);
+  return [
+    THREE.MathUtils.lerp(source[0], target[0], progress),
+    THREE.MathUtils.lerp(source[1], target[1], progress),
+    THREE.MathUtils.lerp(source[2], target[2], progress),
+  ];
+}
+
+export function dampTrailPositions(current: Float32Array, target: Float32Array, alpha: number): Float32Array {
+  const progress = THREE.MathUtils.clamp(alpha, 0, 1);
+  const length = Math.min(current.length, target.length);
+  for (let index = 0; index < length; index += 1) {
+    current[index] = THREE.MathUtils.lerp(current[index], target[index], progress);
+  }
+  return current;
+}
+
+export function narrativeTrailTargets(cue: MotionCue, side: -1 | 1, count = 96): number[] {
+  const size = Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0;
+  const values = new Array<number>(size * 3);
+  for (let index = 0; index < size; index += 1) {
+    const t = size <= 1 ? 0.5 : index / (size - 1);
+    const angle = t * Math.PI * 2;
+    let x: number;
+    let y: number;
+    let z: number;
+
+    if (cue === "attract") {
+      const spiral = angle * 2.4 + (side < 0 ? Math.PI : 0);
+      const radius = 0.28 + t * 1.5;
+      x = side * 0.45 + Math.cos(spiral) * radius;
+      y = 0.18 + Math.sin(spiral) * radius * 0.46;
+      z = (t - 0.5) * side * 0.72;
+    } else if (cue === "disrupt") {
+      const fracture = (index % 4 < 2 ? -1 : 1) * (0.12 + t * 0.18);
+      x = side * (0.3 + t * 1.5) + fracture;
+      y = Math.sin(angle * 4.5 + side) * (0.25 + t * 0.55) + fracture * side;
+      z = Math.cos(angle * 6.5) * 0.38 + fracture;
+    } else if (cue === "lock") {
+      const ring = angle * 1.5;
+      x = side * 0.72 + Math.cos(ring) * 0.64;
+      y = Math.sin(ring) * 0.64;
+      z = (t - 0.5) * 0.42 + side * 0.08;
+    } else if (cue === "orbit") {
+      const petal = 0.72 + Math.cos(angle * 5) * 0.3;
+      x = side * 0.32 + Math.cos(angle) * petal;
+      y = Math.sin(angle) * petal;
+      z = Math.sin(angle * 5) * 0.24 * side;
+    } else if (cue === "reply") {
+      const branch = index % 3 - 1;
+      x = side * (0.25 + t * 1.78);
+      y = Math.sin(angle * 2.5 + side * 0.7) * (0.18 + t * 0.48) + branch * 0.08;
+      z = branch * 0.22 + Math.cos(angle * 1.5) * 0.12;
+    } else if (cue === "tunnel") {
+      const helix = angle * 3.2 + side * Math.PI * 0.5;
+      const radius = 0.86 - t * 0.32;
+      x = side * 0.28 + Math.cos(helix) * radius;
+      y = Math.sin(helix) * radius;
+      z = (t - 0.5) * 3.2;
+    } else if (cue === "sync") {
+      x = (t - 0.5) * 3.3;
+      y = side * 0.5 + Math.sin(angle * 2) * 0.11;
+      z = side * 0.16 + Math.cos(angle * 2) * 0.07;
+    } else if (side < 0) {
+      if (t < 1 / 3) {
+        const branch = t * 3;
+        x = -1.25 + branch * 0.72;
+        y = 1.1 - branch * 0.92;
+      } else if (t < 2 / 3) {
+        const branch = (t - 1 / 3) * 3;
+        x = 0.62 - branch * 1.15;
+        y = 1.1 - branch * 0.92;
+      } else {
+        const stem = (t - 2 / 3) * 3;
+        x = -0.53;
+        y = 0.18 - stem * 1.28;
+      }
+      z = Math.sin(angle * 2) * 0.08;
+    } else {
+      const bowl = Math.PI + t * Math.PI;
+      x = 0.72 + Math.cos(bowl) * 0.72;
+      y = 0.62 + Math.sin(bowl) * 1.55;
+      z = Math.sin(angle * 2) * 0.08;
+    }
+
+    values[index * 3] = x;
+    values[index * 3 + 1] = y;
+    values[index * 3 + 2] = z;
+  }
+  return values;
+}
+
 const vertexShader = `
   uniform float uTime;
   uniform float uMorph;
@@ -127,16 +229,6 @@ function damp(current: number, target: number, lambda: number, delta: number) {
   return THREE.MathUtils.lerp(current, target, 1 - Math.exp(-lambda * delta));
 }
 
-function trailGeometry(side: -1 | 1) {
-  const points = Array.from({ length: 96 }, (_, index) => {
-    const t = index / 95;
-    const angle = t * Math.PI * 2.4 + (side < 0 ? Math.PI : 0);
-    const radius = 0.35 + t * 1.55;
-    return new THREE.Vector3(side * 0.45 + Math.cos(angle) * radius, 0.18 + Math.sin(angle) * radius * 0.46, (t - 0.5) * side * 0.7);
-  });
-  return new THREE.BufferGeometry().setFromPoints(points);
-}
-
 function ribbonGeometry(offset: number) {
   const points = Array.from({ length: 220 }, (_, index) => {
     const t = (index / 219) * Math.PI * 2;
@@ -163,6 +255,22 @@ export function TwinGravityCanvas({ scene, phase, growth }: Props) {
     let disposed = false;
     let frame: number | null = null;
     const disposables: Disposable[] = [];
+    const listenerCleanups: Array<() => void> = [];
+    let listenersCleaned = false;
+    const registerListener = (
+      target: Window | Document,
+      type: string,
+      listener: EventListener,
+      options?: AddEventListenerOptions,
+    ) => {
+      target.addEventListener(type, listener, options);
+      listenerCleanups.push(() => target.removeEventListener(type, listener));
+    };
+    const cleanupListeners = () => {
+      if (listenersCleaned) return;
+      listenersCleaned = true;
+      for (let index = listenerCleanups.length - 1; index >= 0; index -= 1) listenerCleanups[index]();
+    };
     const disposeAll = () => {
       if (disposed) return;
       disposed = true;
@@ -213,7 +321,8 @@ export function TwinGravityCanvas({ scene, phase, growth }: Props) {
       particleGeometry.setAttribute("aColor", new THREE.BufferAttribute(colors, 3));
 
       const initialAnchors = sceneGravityAnchors(liveRef.current.scene);
-      const initialEnvelope = motionEnvelope(sceneTimelines[liveRef.current.scene].motion, reducedMotion);
+      const initialMotion = sceneTimelines[liveRef.current.scene].motion;
+      const initialEnvelope = motionEnvelope(initialMotion, reducedMotion);
       const uniforms = {
         uTime: { value: 0 },
         uMorph: { value: 0 },
@@ -266,12 +375,23 @@ export function TwinGravityCanvas({ scene, phase, growth }: Props) {
 
       const narrativeTrails = new THREE.Group();
       const createTrail = (side: -1 | 1, color: number) => {
-        const geometry = trailGeometry(side);
+        const initialTargets = narrativeTrailTargets(initialMotion, side);
+        const positions = new Float32Array(initialTargets);
+        const geometry = new THREE.BufferGeometry();
+        const positionAttribute = new THREE.BufferAttribute(positions, 3);
+        geometry.setAttribute("position", positionAttribute);
         const material = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.45, blending: THREE.AdditiveBlending, depthWrite: false });
         disposables.push(geometry, material);
-        return new THREE.Line(geometry, material);
+        return {
+          line: new THREE.Line(geometry, material),
+          positionAttribute,
+          positions,
+          target: new Float32Array(initialTargets),
+          side,
+        };
       };
-      narrativeTrails.add(createTrail(-1, 0x50eeff), createTrail(1, 0xff58aa));
+      const trailStates = [createTrail(-1, 0x50eeff), createTrail(1, 0xff58aa)];
+      narrativeTrails.add(...trailStates.map(({ line }) => line));
       world.add(narrativeTrails);
 
       const infinityRibbons = new THREE.Group();
@@ -293,8 +413,10 @@ export function TwinGravityCanvas({ scene, phase, growth }: Props) {
       world.add(new THREE.AmbientLight(0x707aff, 1.05));
       const yLight = new THREE.PointLight(0x50eeff, 15, 10);
       const uLight = new THREE.PointLight(0xff58aa, 14, 10);
-      yLight.position.copy(yCore.position).add(new THREE.Vector3(0, 0.8, 1.2));
-      uLight.position.copy(uCore.position).add(new THREE.Vector3(0, 0.5, 1));
+      const yLightOffset = new THREE.Vector3(0, 0.8, 1.2);
+      const uLightOffset = new THREE.Vector3(0, 0.5, 1);
+      yLight.position.copy(yCore.position).add(yLightOffset);
+      uLight.position.copy(uCore.position).add(uLightOffset);
       world.add(yLight, uLight);
 
       let composer: EffectComposer | null = null;
@@ -323,14 +445,11 @@ export function TwinGravityCanvas({ scene, phase, growth }: Props) {
         camera.aspect = width / height;
         camera.updateProjectionMatrix();
       };
-      window.addEventListener("pointermove", onPointer, { passive: true });
-      window.addEventListener("deviceorientation", onTilt, { passive: true });
-      window.addEventListener("resize", resize);
-      resize();
 
       const timer = createFrameTimer(performance.now());
       let activeScene = liveRef.current.scene;
       let activeMode = initialMode;
+      let activeTrailMotion = initialMotion;
       let morph = 0;
       let shockwave = 0;
       let trailEnergy = initialEnvelope.trailEnergy;
@@ -351,12 +470,12 @@ export function TwinGravityCanvas({ scene, phase, growth }: Props) {
           const positions = particleGeometry.getAttribute("position") as THREE.BufferAttribute;
           const destinations = particleGeometry.getAttribute("aTarget") as THREE.BufferAttribute;
           for (let index = 0; index < positions.count; index += 1) {
-            positions.setXYZ(
-              index,
-              THREE.MathUtils.lerp(positions.getX(index), destinations.getX(index), morph),
-              THREE.MathUtils.lerp(positions.getY(index), destinations.getY(index), morph),
-              THREE.MathUtils.lerp(positions.getZ(index), destinations.getZ(index), morph),
+            const baked = bakeMorphPosition(
+              [positions.getX(index), positions.getY(index), positions.getZ(index)],
+              [destinations.getX(index), destinations.getY(index), destinations.getZ(index)],
+              morph,
             );
+            positions.setXYZ(index, baked[0], baked[1], baked[2]);
           }
           positions.needsUpdate = true;
           destinations.copyArray(sceneParticleTargets(current.scene, count, mode));
@@ -366,7 +485,15 @@ export function TwinGravityCanvas({ scene, phase, growth }: Props) {
           morph = 0;
         }
 
-        const envelope = motionEnvelope(sceneTimelines[current.scene].motion, reducedMotion);
+        const currentMotion = sceneTimelines[current.scene].motion;
+        if (currentMotion !== activeTrailMotion) {
+          trailStates.forEach((trail) => {
+            trail.target.set(narrativeTrailTargets(sceneTimelines[current.scene].motion, trail.side));
+          });
+          activeTrailMotion = currentMotion;
+        }
+
+        const envelope = motionEnvelope(currentMotion, reducedMotion);
         const anchors = sceneGravityAnchors(current.scene);
         targetY.fromArray(anchors.y);
         targetU.fromArray(anchors.u);
@@ -401,11 +528,14 @@ export function TwinGravityCanvas({ scene, phase, growth }: Props) {
         uCore.rotation.y -= safeDelta * envelope.spin * 0.88;
         yCore.rotation.x = reducedMotion ? 0 : Math.sin(elapsed * 0.3) * 0.08;
         uCore.rotation.x = reducedMotion ? 0 : Math.cos(elapsed * 0.27) * 0.08;
-        yLight.position.copy(yCore.position).add(new THREE.Vector3(0, 0.8, 1.2));
-        uLight.position.copy(uCore.position).add(new THREE.Vector3(0, 0.5, 1));
+        yLight.position.copy(yCore.position).add(yLightOffset);
+        uLight.position.copy(uCore.position).add(uLightOffset);
 
-        narrativeTrails.children.forEach((child, index) => {
-          const material = (child as THREE.Line).material as THREE.LineBasicMaterial;
+        const trailDamping = 1 - Math.exp(-3.1 * safeDelta);
+        trailStates.forEach((trail, index) => {
+          dampTrailPositions(trail.positions, trail.target, trailDamping);
+          trail.positionAttribute.needsUpdate = true;
+          const material = trail.line.material as THREE.LineBasicMaterial;
           material.opacity = (0.2 + index * 0.08) * trailEnergy;
         });
         narrativeTrails.rotation.z = reducedMotion ? 0 : Math.sin(elapsed * 0.22) * 0.08 * trailEnergy;
@@ -438,24 +568,27 @@ export function TwinGravityCanvas({ scene, phase, growth }: Props) {
         timer.reset(performance.now());
         startAnimation();
       };
-      document.addEventListener("visibilitychange", onVisibility);
+      registerListener(window, "pointermove", onPointer as EventListener, { passive: true });
+      registerListener(window, "deviceorientation", onTilt as EventListener, { passive: true });
+      registerListener(window, "resize", resize as EventListener);
+      registerListener(document, "visibilitychange", onVisibility as EventListener);
+      resize();
       startAnimation();
 
       return () => {
         mounted = false;
-        window.removeEventListener("pointermove", onPointer);
-        window.removeEventListener("deviceorientation", onTilt);
-        window.removeEventListener("resize", resize);
-        document.removeEventListener("visibilitychange", onVisibility);
+        cleanupListeners();
         disposeAll();
       };
     } catch {
+      cleanupListeners();
       disposeAll();
       queueMicrotask(() => {
         if (mounted) setRendererFailed(true);
       });
       return () => {
         mounted = false;
+        cleanupListeners();
         disposeAll();
       };
     }
