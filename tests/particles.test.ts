@@ -11,6 +11,45 @@ const advancedParticles = particles as typeof particles & {
   transitionParticleTargets?: (from: Scene, to: Scene, count: number) => { exit: number[]; entry: number[] };
 };
 
+const strandPairs = [
+  [0, 37],
+  [0, 71],
+  [37, 71],
+  [13, 99],
+  [42, 117],
+] as const;
+
+function distanceBetween(targets: number[], from: number, to: number): number {
+  const fromOffset = from * 3;
+  const toOffset = to * 3;
+  return Math.hypot(
+    targets[fromOffset] - targets[toOffset],
+    targets[fromOffset + 1] - targets[toOffset + 1],
+    targets[fromOffset + 2] - targets[toOffset + 2],
+  );
+}
+
+function assertModePreservesStrandDistances(present: number[], mode: number[], modeName: TargetMode): number {
+  if (present.length !== mode.length) throw new Error(`${modeName} target length differs from present targets`);
+
+  let scale: number | undefined;
+  for (const [from, to] of strandPairs) {
+    const presentDistance = distanceBetween(present, from, to);
+    if (presentDistance <= 1e-8) throw new Error(`present strand pair (${from}, ${to}) is degenerate`);
+
+    const ratio = distanceBetween(mode, from, to) / presentDistance;
+    if (scale === undefined) {
+      scale = ratio;
+    } else if (Math.abs(ratio - scale) > 1e-10) {
+      throw new Error(
+        `${modeName} strand distance mismatch at pair (${from}, ${to}): expected scale ${scale}, received ${ratio}`,
+      );
+    }
+  }
+  if (scale === undefined) throw new Error(`no ${modeName} strand pairs were compared`);
+  return scale;
+}
+
 test("particle targets are deterministic and finite", () => {
   expect(echoCoreTargets(512, 523)).toEqual(echoCoreTargets(512, 523));
   expect(echoCoreTargets(512, 523)).toHaveLength(1536);
@@ -130,6 +169,35 @@ test("mode changes retain the same indexed sculpture strands instead of scatteri
     expect(entry.slice(0, 30)).not.toEqual(present.slice(0, 30));
     expect(exit.slice(0, 30)).not.toEqual(present.slice(0, 30));
   }
+});
+
+test("entry and exit preserve per-index strand distances under their affine target transforms", () => {
+  const sceneParticleTargets = advancedParticles.sceneParticleTargets;
+  expect(sceneParticleTargets).toBeTypeOf("function");
+
+  for (const scene of sceneOrder) {
+    const present = sceneParticleTargets!(scene, 120, "present");
+    expect(assertModePreservesStrandDistances(present, sceneParticleTargets!(scene, 120, "entry"), "entry")).toBeCloseTo(0.45, 10);
+    expect(assertModePreservesStrandDistances(present, sceneParticleTargets!(scene, 120, "exit"), "exit")).toBeCloseTo(0.32, 10);
+  }
+});
+
+test("strand correspondence invariant rejects a bounded target set with swapped indexed triplets", () => {
+  const sceneParticleTargets = advancedParticles.sceneParticleTargets;
+  const present = sceneParticleTargets!("wake", 120, "present");
+  const permutedEntry = [...sceneParticleTargets!("wake", 120, "entry")];
+  const firstOffset = 0;
+  const secondOffset = 37 * 3;
+
+  for (let axis = 0; axis < 3; axis += 1) {
+    const value = permutedEntry[firstOffset + axis];
+    permutedEntry[firstOffset + axis] = permutedEntry[secondOffset + axis];
+    permutedEntry[secondOffset + axis] = value;
+  }
+
+  expect(() => assertModePreservesStrandDistances(present, permutedEntry, "entry")).toThrow(
+    /entry strand distance mismatch at pair \(0, 71\)/,
+  );
 });
 
 test("finale present targets form converging Y branches and a stem nested over a U bowl", () => {
