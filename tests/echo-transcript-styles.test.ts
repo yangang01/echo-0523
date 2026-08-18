@@ -3,9 +3,31 @@ import { resolve } from "node:path";
 
 const css = readFileSync(resolve(process.cwd(), "app/globals.css"), "utf8");
 
-function ruleFor(selector: string) {
+function nestedBlock(source: string, opener: string) {
+  const start = source.indexOf(opener);
+  if (start < 0) return "";
+  const open = source.indexOf("{", start + opener.length);
+  if (open < 0) return "";
+  let depth = 1;
+  for (let index = open + 1; index < source.length; index += 1) {
+    if (source[index] === "{") depth += 1;
+    if (source[index] === "}") depth -= 1;
+    if (depth === 0) return source.slice(open + 1, index);
+  }
+  return "";
+}
+
+function ruleFor(selector: string, source = css) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return css.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`, "s"))?.[1] ?? "";
+  return source.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`, "s"))?.[1] ?? "";
+}
+
+function mediaFor(condition: string) {
+  return nestedBlock(css, `@media (${condition})`);
+}
+
+function keyframesFor(name: string) {
+  return nestedBlock(css, `@keyframes ${name}`);
 }
 
 const sceneIds = ["wake", "jealousy", "confession", "privilege", "signal", "game", "night", "finale"] as const;
@@ -19,9 +41,11 @@ test("renders the transcript as a compact cinematic glass panel", () => {
 
   expect(transcript).toMatch(/width:\s*min\(430px,\s*100%\)/);
   expect(transcript).toMatch(/min-height:\s*92px/);
+  expectDeclaration(transcript, "max-height", /none/);
   expect(transcript).toMatch(/backdrop-filter:\s*blur\(18px\)/);
   expect(transcript).toMatch(/background:\s*linear-gradient/);
   expect(transcript).toMatch(/overflow:\s*hidden/);
+  expect(transcript).not.toMatch(/overflow(?:-y)?:\s*(?:auto|scroll)/);
 });
 
 test("animates the scan and copy while preserving marker states", () => {
@@ -34,13 +58,17 @@ test("animates the scan and copy while preserving marker states", () => {
 });
 
 test("keeps transcript markers visually compact with unambiguous 44px touch targets", () => {
+  const transcript = ruleFor(".echo-transcript");
+  expectDeclaration(transcript, "--transcript-hit-target", /44px/);
+  expectDeclaration(transcript, "--transcript-row-gap", /2px/);
+
   const markers = ruleFor(".echo-transcript-markers");
   expectDeclaration(markers, "gap", /4px/);
-  expectDeclaration(markers, "margin-top", /2px/);
+  expectDeclaration(markers, "margin-top", /var\(--transcript-row-gap\)/);
 
   const button = ruleFor(".echo-transcript-markers button");
-  expectDeclaration(button, "width", /44px/);
-  expectDeclaration(button, "height", /44px/);
+  expectDeclaration(button, "width", /var\(--transcript-hit-target\)/);
+  expectDeclaration(button, "height", /var\(--transcript-hit-target\)/);
   expectDeclaration(button, "position", /relative/);
 
   const dot = ruleFor(".echo-transcript-markers button::before");
@@ -60,18 +88,26 @@ test("collapses an empty transcript and keeps desktop copy aligned", () => {
   expect(empty).toMatch(/box-shadow:\s*none/);
   expect(empty).toMatch(/backdrop-filter:\s*none/);
 
-  expect(css).toMatch(/@media\s*\(min-width:\s*800px\)[\s\S]*?\.echo-transcript\s*\{[^}]*margin-left:\s*0/);
+  expectDeclaration(ruleFor(".echo-transcript", mediaFor("min-width:800px")), "margin-left", /0/);
 });
 
-test("constrains the transcript on short phones without hiding story copy", () => {
-  expect(css).toMatch(
-    /@media\s*\(max-height:\s*680px\)[\s\S]*?\.echo-transcript\s*\{[^}]*min-height:\s*72px[^}]*max-height:\s*108px[^}]*margin-top:\s*8px[^}]*overflow-y:\s*auto/,
-  );
-  expect(css).toMatch(/@media\s*\(max-height:\s*680px\)[\s\S]*?\.echo-transcript-copy\s*\{[^}]*font-size:\s*11px/);
-  expect(css).toMatch(
-    /@media\s*\(max-height:\s*680px\)[\s\S]*?\.echo-transcript-empty\s*\{[^}]*min-height:\s*0[^}]*height:\s*0[^}]*margin:\s*0[^}]*padding:\s*0/,
-  );
-  const shortPhone = css.slice(css.indexOf("@media (max-height:680px)"), css.indexOf("@media (prefers-reduced-motion:reduce)"));
+test("uses one stage scroll owner on short phones while transcript expands to all copy and controls", () => {
+  const shortPhone = mediaFor("max-height:680px");
+  const transcript = ruleFor(".echo-transcript", shortPhone);
+  expectDeclaration(transcript, "min-height", /72px/);
+  expectDeclaration(transcript, "max-height", /none/);
+  expectDeclaration(transcript, "margin-top", /8px/);
+  expectDeclaration(transcript, "overflow", /hidden/);
+  expect(transcript).not.toMatch(/overflow(?:-y)?:\s*(?:auto|scroll)/);
+
+  const stage = ruleFor(".scene-stage", shortPhone);
+  expectDeclaration(stage, "overflow-y", /auto/);
+  expectDeclaration(ruleFor(".echo-transcript-copy", shortPhone), "font-size", /11px/);
+
+  const empty = ruleFor(".echo-transcript-empty", shortPhone);
+  for (const property of ["min-height", "height", "margin", "padding"]) {
+    expectDeclaration(empty, property, /0/);
+  }
   expect(shortPhone).not.toMatch(/\.scene-body\s*\{[^}]*display:\s*none/);
 });
 
@@ -98,10 +134,9 @@ test("mobile cinematic shell uses dynamic viewport and safe areas", () => {
 
 test("sound control remains a 44px target through the short-screen cascade", () => {
   expectDeclaration(ruleFor(".sound-button"), "min-height", /44px/);
-  expect(css).toMatch(
-    /@media\s*\(max-height:\s*680px\)[\s\S]*?\.sound-button\s*\{[^}]*min-height:\s*44px/,
-  );
-  expect(css).not.toMatch(/@media\s*\(max-height:\s*680px\)[\s\S]*?\.sound-button\s*\{[^}]*min-height:\s*(?:[0-3]\d|4[0-3])px/);
+  const shortSound = ruleFor(".sound-button", mediaFor("max-height:680px"));
+  expectDeclaration(shortSound, "min-height", /44px/);
+  expect(shortSound).not.toMatch(/min-height:\s*(?:[0-3]\d|4[0-3])px/);
 });
 
 test("only the opening gravity control suppresses selection and touch callouts", () => {
@@ -151,7 +186,7 @@ test("gives all eight scenes distinct cinematic variables and semantic overlays"
 
 test("keeps bloom behind compact transcript content", () => {
   const transcript = ruleFor(".echo-transcript");
-  expectDeclaration(transcript, "max-height", /108px/);
+  expectDeclaration(transcript, "max-height", /none/);
   expectDeclaration(transcript, "isolation", /isolate/);
   expect(transcript).toMatch(/box-shadow:[^;]*var\(--scene-bloom\)/);
 
@@ -160,12 +195,36 @@ test("keeps bloom behind compact transcript content", () => {
 });
 
 test("reduced motion stops loops while retaining brief phase transitions and focus styles", () => {
-  const reducedStart = css.indexOf("@media (prefers-reduced-motion:reduce)");
-  expect(reducedStart).toBeGreaterThan(-1);
-  const reduced = css.slice(reducedStart);
-  expect(reduced).toMatch(/\.swipe-cue\s*\{[^}]*animation:\s*none/);
-  expect(reduced).toMatch(/\.scene-stage\s*\{[^}]*transition-duration:\s*\.4s/);
-  expect(reduced).toMatch(/\.echo-transcript-copy\s*\{[^}]*animation:\s*echo-copy-in\s+\.4s/);
+  const reduced = mediaFor("prefers-reduced-motion:reduce");
+  expectDeclaration(ruleFor(".swipe-cue", reduced), "animation", /none/);
+  expectDeclaration(ruleFor(".scene-stage", reduced), "transition-duration", /\.4s/);
+  expectDeclaration(ruleFor(".echo-transcript-copy", reduced), "animation", /echo-copy-in\s+\.4s/);
   expect(reduced).not.toMatch(/\.echo-transcript-markers button:focus-visible[^}]*transition:\s*none/);
   expect(reduced).not.toMatch(/\.replay-button:focus-visible[^}]*outline:\s*none/);
+});
+
+test("looped cinematic overlays stay on compositor-friendly transform and opacity", () => {
+  const overlay = ruleFor(".scene-action::before");
+  expectDeclaration(overlay, "will-change", /transform,\s*opacity/);
+  expect(overlay).not.toMatch(/mix-blend-mode|filter/);
+
+  const compositorAnimations = [
+    "star-drift",
+    "swipe-breathe",
+    "wake-gravity-bridge",
+    "jealousy-orbit-fracture",
+    "confession-coordinate-lock",
+    "privilege-petal-bloom",
+    "signal-echo-return",
+    "game-dual-tunnel",
+    "night-frequency-merge",
+    "finale-yu-seal",
+    "finale-plate-breathe",
+  ];
+  for (const animation of compositorAnimations) {
+    const frames = keyframesFor(animation);
+    expect(frames, `${animation} keyframes missing`).not.toBe("");
+    expect(frames, `${animation} triggers mobile repaint`).not.toMatch(/filter|background-(?:position|size)|box-shadow/);
+    expect(frames, `${animation} needs compositor motion`).toMatch(/transform|opacity/);
+  }
 });
