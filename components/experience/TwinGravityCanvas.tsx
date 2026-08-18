@@ -9,7 +9,7 @@ import type { DirectorPhase } from "../../lib/director";
 import type { Growth, SceneId } from "../../lib/experience";
 import { createFrameTimer } from "../../lib/frame-timer";
 import { sceneGravityAnchors, sceneParticleTargets, type TargetMode } from "../../lib/particles";
-import { initialQuality, qualityProfiles } from "../../lib/quality";
+import { initialQuality, lowerQuality, qualityProfiles, type Quality } from "../../lib/quality";
 import { sceneTimelines, type MotionCue } from "../../lib/scene-timelines";
 
 type Props = { scene: SceneId; phase: DirectorPhase; growth: Growth };
@@ -38,6 +38,13 @@ const motionEnvelopes = {
   infinity: { cameraZ: 7.8, cameraDrift: 0.055, shockwave: 0.16, trailEnergy: 0.7, bloom: 1.36, energy: 0.82, coreScale: 1, spin: 0.09, tint: "#d8a0ff" },
 } as const satisfies Readonly<Record<MotionCue, MotionEnvelope>>;
 
+const reducedMotionEnvelopes = Object.fromEntries(
+  (Object.keys(motionEnvelopes) as MotionCue[]).map((cue) => {
+    const envelope = motionEnvelopes[cue];
+    return [cue, Object.freeze({ ...envelope, cameraZ: 6.9, cameraDrift: 0, shockwave: 0, spin: 0 })];
+  }),
+) as Readonly<Record<MotionCue, MotionEnvelope>>;
+
 export function phaseTargetMode(phase: DirectorPhase): TargetMode {
   if (phase === "enter") return "entry";
   if (phase === "exit") return "exit";
@@ -45,9 +52,57 @@ export function phaseTargetMode(phase: DirectorPhase): TargetMode {
 }
 
 export function motionEnvelope(cue: MotionCue, reducedMotion = false): MotionEnvelope {
-  const envelope = motionEnvelopes[cue];
-  if (!reducedMotion) return envelope;
-  return { ...envelope, cameraZ: 6.9, cameraDrift: 0, shockwave: 0, spin: 0 };
+  return reducedMotion ? reducedMotionEnvelopes[cue] : motionEnvelopes[cue];
+}
+
+export type SceneVisualState = Readonly<{
+  anchors: ReturnType<typeof sceneGravityAnchors>;
+  motion: MotionCue;
+  envelope: MotionEnvelope;
+}>;
+
+function createSceneVisualStates(reducedMotion: boolean): Readonly<Record<SceneId, SceneVisualState>> {
+  return Object.fromEntries(
+    (Object.keys(sceneTimelines) as SceneId[]).map((scene) => {
+      const anchors = sceneGravityAnchors(scene);
+      Object.freeze(anchors.y);
+      Object.freeze(anchors.u);
+      Object.freeze(anchors);
+      const motion = sceneTimelines[scene].motion;
+      return [scene, Object.freeze({ anchors, motion, envelope: motionEnvelope(motion, reducedMotion) })];
+    }),
+  ) as Readonly<Record<SceneId, SceneVisualState>>;
+}
+
+const standardSceneVisualStates = createSceneVisualStates(false);
+const reducedSceneVisualStates = createSceneVisualStates(true);
+
+export function sceneVisualState(scene: SceneId, reducedMotion = false): SceneVisualState {
+  return (reducedMotion ? reducedSceneVisualStates : standardSceneVisualStates)[scene];
+}
+
+export function createQualityGovernor(initial: Quality, sustainedFrames = 12) {
+  let current = initial;
+  let pending: Quality | null = null;
+  let slowFrames = 0;
+  const threshold = Math.max(1, Math.floor(sustainedFrames));
+  return {
+    sample(delta: number): Quality | null {
+      if (pending || current === "low") return null;
+      slowFrames = delta >= 1 / 24 ? slowFrames + 1 : 0;
+      if (slowFrames < threshold) return null;
+      slowFrames = 0;
+      const next = lowerQuality(current);
+      if (next === current) return null;
+      pending = next;
+      return pending;
+    },
+    commit(): Quality {
+      if (pending) current = pending;
+      pending = null;
+      return current;
+    },
+  };
 }
 
 export function morphProgress(value: number): number {
@@ -66,6 +121,15 @@ export function bakeMorphPosition(
     THREE.MathUtils.lerp(source[1], target[1], progress),
     THREE.MathUtils.lerp(source[2], target[2], progress),
   ];
+}
+
+export function bakeMorphCoordinates(current: Float32Array, target: Float32Array, morph: number): Float32Array {
+  const progress = morphProgress(morph);
+  const length = Math.min(current.length, target.length);
+  for (let index = 0; index < length; index += 1) {
+    current[index] = THREE.MathUtils.lerp(current[index], target[index], progress);
+  }
+  return current;
 }
 
 export function dampTrailPositions(current: Float32Array, target: Float32Array, alpha: number): Float32Array {
@@ -258,7 +322,7 @@ export function TwinGravityCanvas({ scene, phase, growth }: Props) {
     const listenerCleanups: Array<() => void> = [];
     let listenersCleaned = false;
     const registerListener = (
-      target: Window | Document,
+      target: Window | Document | HTMLCanvasElement,
       type: string,
       listener: EventListener,
       options?: AddEventListenerOptions,
@@ -287,7 +351,8 @@ export function TwinGravityCanvas({ scene, phase, growth }: Props) {
       const count = profile.particles;
       const renderer = new THREE.WebGLRenderer({ canvas, antialias: quality === "high", alpha: true, powerPreference: "high-performance" });
       disposables.push(renderer);
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, quality === "high" ? 2 : 1.35));
+      const pixelRatioFor = (tier: Quality) => Math.min(window.devicePixelRatio || 1, tier === "high" ? 2 : tier === "medium" ? 1.35 : 1);
+      renderer.setPixelRatio(pixelRatioFor(quality));
       renderer.setClearColor(0x02030a, 1);
       renderer.outputColorSpace = THREE.SRGBColorSpace;
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -319,10 +384,12 @@ export function TwinGravityCanvas({ scene, phase, growth }: Props) {
       particleGeometry.setAttribute("aTarget", new THREE.BufferAttribute(target, 3));
       particleGeometry.setAttribute("aSeed", new THREE.BufferAttribute(seeds, 1));
       particleGeometry.setAttribute("aColor", new THREE.BufferAttribute(colors, 3));
+      particleGeometry.setDrawRange(0, profile.particles);
 
-      const initialAnchors = sceneGravityAnchors(liveRef.current.scene);
-      const initialMotion = sceneTimelines[liveRef.current.scene].motion;
-      const initialEnvelope = motionEnvelope(initialMotion, reducedMotion);
+      const initialVisualState = sceneVisualState(liveRef.current.scene, reducedMotion);
+      const initialAnchors = initialVisualState.anchors;
+      const initialMotion = initialVisualState.motion;
+      const initialEnvelope = initialVisualState.envelope;
       const uniforms = {
         uTime: { value: 0 },
         uMorph: { value: 0 },
@@ -447,9 +514,13 @@ export function TwinGravityCanvas({ scene, phase, growth }: Props) {
       };
 
       const timer = createFrameTimer(performance.now());
+      const qualityGovernor = createQualityGovernor(quality);
+      let activeQuality = quality;
+      let pendingQuality: Quality | null = null;
       let activeScene = liveRef.current.scene;
       let activeMode = initialMode;
       let activeTrailMotion = initialMotion;
+      let activeVisualState = initialVisualState;
       let morph = 0;
       let shockwave = 0;
       let trailEnergy = initialEnvelope.trailEnergy;
@@ -458,47 +529,53 @@ export function TwinGravityCanvas({ scene, phase, growth }: Props) {
       const targetY = new THREE.Vector3(...initialAnchors.y);
       const targetU = new THREE.Vector3(...initialAnchors.u);
       const desiredTint = new THREE.Color(initialEnvelope.tint);
+      let contextLost = false;
 
       const renderFrame = () => {
         frame = null;
         if (disposed || document.hidden) return;
         const { delta, elapsed } = timer.tick(performance.now());
         const safeDelta = Math.min(delta, 1 / 20);
+        pendingQuality ??= qualityGovernor.sample(delta);
         const current = liveRef.current;
         const mode = phaseTargetMode(current.phase);
         if (current.scene !== activeScene || mode !== activeMode) {
           const positions = particleGeometry.getAttribute("position") as THREE.BufferAttribute;
           const destinations = particleGeometry.getAttribute("aTarget") as THREE.BufferAttribute;
-          for (let index = 0; index < positions.count; index += 1) {
-            const baked = bakeMorphPosition(
-              [positions.getX(index), positions.getY(index), positions.getZ(index)],
-              [destinations.getX(index), destinations.getY(index), destinations.getZ(index)],
-              morph,
-            );
-            positions.setXYZ(index, baked[0], baked[1], baked[2]);
-          }
+          bakeMorphCoordinates(positions.array as Float32Array, destinations.array as Float32Array, morph);
           positions.needsUpdate = true;
           destinations.copyArray(sceneParticleTargets(current.scene, count, mode));
           destinations.needsUpdate = true;
+          if (current.scene !== activeScene) activeVisualState = sceneVisualState(current.scene, reducedMotion);
           activeScene = current.scene;
           activeMode = mode;
           morph = 0;
         }
 
-        const currentMotion = sceneTimelines[current.scene].motion;
+        const currentMotion = activeVisualState.motion;
         if (currentMotion !== activeTrailMotion) {
           trailStates.forEach((trail) => {
-            trail.target.set(narrativeTrailTargets(sceneTimelines[current.scene].motion, trail.side));
+            trail.target.set(narrativeTrailTargets(currentMotion, trail.side));
           });
           activeTrailMotion = currentMotion;
         }
 
-        const envelope = motionEnvelope(currentMotion, reducedMotion);
-        const anchors = sceneGravityAnchors(current.scene);
+        const envelope = activeVisualState.envelope;
+        const anchors = activeVisualState.anchors;
         targetY.fromArray(anchors.y);
         targetU.fromArray(anchors.u);
         const morphRate = reducedMotion ? 2.5 : 1.35;
         morph = Math.min(1, morph + safeDelta * morphRate);
+        if (pendingQuality && morph >= 1) {
+          activeQuality = pendingQuality;
+          const activeProfile = qualityProfiles[activeQuality];
+          particleGeometry.setDrawRange(0, Math.min(count, activeProfile.particles));
+          renderer.setPixelRatio(pixelRatioFor(activeQuality));
+          if (bloomPass) bloomPass.enabled = activeProfile.bloomScale > 0;
+          resize();
+          qualityGovernor.commit();
+          pendingQuality = null;
+        }
         shockwave = damp(shockwave, envelope.shockwave, 4.2, safeDelta);
         trailEnergy = damp(trailEnergy, envelope.trailEnergy, 3.2, safeDelta);
         energy = damp(energy, envelope.energy, 2.8, safeDelta);
@@ -550,14 +627,17 @@ export function TwinGravityCanvas({ scene, phase, growth }: Props) {
         camera.position.x = reducedMotion ? 0 : damp(camera.position.x, pointer.x * 0.12 + Math.sin(elapsed * 0.16) * envelope.cameraDrift, 1.8, safeDelta);
         camera.position.y = reducedMotion ? 0 : damp(camera.position.y, pointer.y * 0.08 + Math.cos(elapsed * 0.13) * envelope.cameraDrift * 0.45, 1.8, safeDelta);
         camera.lookAt(0, 0, 0);
-        if (bloomPass) bloomPass.strength = damp(bloomPass.strength, envelope.bloom * profile.bloomScale * (0.8 + energy * 0.2), 2.4, safeDelta);
+        if (bloomPass) {
+          const bloomScale = qualityProfiles[activeQuality].bloomScale;
+          bloomPass.strength = damp(bloomPass.strength, envelope.bloom * bloomScale * (0.8 + energy * 0.2), 2.4, safeDelta);
+        }
         if (composer) composer.render();
         else renderer.render(world, camera);
         frame = requestAnimationFrame(renderFrame);
       };
 
       const startAnimation = () => {
-        if (!disposed && !document.hidden && frame === null) frame = requestAnimationFrame(renderFrame);
+        if (!disposed && !document.hidden && !contextLost && frame === null) frame = requestAnimationFrame(renderFrame);
       };
       const onVisibility = () => {
         if (document.hidden) {
@@ -568,10 +648,24 @@ export function TwinGravityCanvas({ scene, phase, growth }: Props) {
         timer.reset(performance.now());
         startAnimation();
       };
+      const onContextLost = (event: Event) => {
+        event.preventDefault();
+        contextLost = true;
+        if (frame !== null) cancelAnimationFrame(frame);
+        frame = null;
+      };
+      const onContextRestored = () => {
+        if (!contextLost) return;
+        contextLost = false;
+        timer.reset(performance.now());
+        startAnimation();
+      };
       registerListener(window, "pointermove", onPointer as EventListener, { passive: true });
       registerListener(window, "deviceorientation", onTilt as EventListener, { passive: true });
       registerListener(window, "resize", resize as EventListener);
       registerListener(document, "visibilitychange", onVisibility as EventListener);
+      registerListener(canvas, "webglcontextlost", onContextLost as EventListener);
+      registerListener(canvas, "webglcontextrestored", onContextRestored as EventListener);
       resize();
       startAnimation();
 
