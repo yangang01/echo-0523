@@ -3,12 +3,12 @@
 import { useEffect, useRef } from "react";
 import { audioRecipe, type SoundName } from "../../lib/audio";
 
-export function AudioEngine({ enabled, cue }: { enabled: boolean; cue: SoundName }) {
+export function AudioEngine({ enabled, paused, cue }: { enabled: boolean; paused: boolean; cue: SoundName }) {
   const contextRef = useRef<AudioContext | null>(null);
   const previousCue = useRef(cue);
 
   useEffect(() => {
-    if (!enabled || typeof AudioContext === "undefined") return;
+    if (!enabled || paused || typeof AudioContext === "undefined") return;
     const context = contextRef.current ?? new AudioContext();
     contextRef.current = context;
     void context.resume();
@@ -26,7 +26,14 @@ export function AudioEngine({ enabled, cue }: { enabled: boolean; cue: SoundName
     oscillator.connect(gain).connect(context.destination);
     oscillator.start();
     oscillator.stop(context.currentTime + recipe.duration + 0.02);
-  }, [cue, enabled]);
+  }, [cue, enabled, paused]);
+
+  useEffect(() => {
+    const context = contextRef.current;
+    if (!context) return;
+    if (paused || !enabled) void context.suspend();
+    else void context.resume();
+  }, [enabled, paused]);
 
   useEffect(() => () => { void contextRef.current?.close(); }, []);
   return null;

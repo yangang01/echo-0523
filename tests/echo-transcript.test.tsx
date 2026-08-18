@@ -109,3 +109,37 @@ test("labels the marker group and exposes the current fragment", () => {
   expect(screen.getByRole("button", { name: "回看第 2 段" })).toHaveAttribute("aria-current", "true");
   expect(screen.getByRole("button", { name: "回看第 1 段" })).not.toHaveAttribute("aria-current");
 });
+
+test("reports pointer reading while keeping the stable live region mounted", () => {
+  const onReadingChange = vi.fn();
+  const { rerender } = render(
+    <EchoTranscript fragments={fragments} unlocked={["one", "two"]} activeId="one" onSelect={() => {}} onReadingChange={onReadingChange} />,
+  );
+  const status = screen.getByRole("status");
+
+  fireEvent.pointerDown(status, { pointerId: 4 });
+  expect(onReadingChange).toHaveBeenLastCalledWith(true);
+  rerender(
+    <EchoTranscript fragments={fragments} unlocked={["one", "two"]} activeId="two" onSelect={() => {}} onReadingChange={onReadingChange} />,
+  );
+  expect(screen.getByRole("status")).toBe(status);
+  fireEvent.pointerUp(status, { pointerId: 4 });
+  expect(onReadingChange).toHaveBeenLastCalledWith(false);
+});
+
+test("pauses across marker focus changes and resumes only when focus leaves the transcript", () => {
+  const onReadingChange = vi.fn();
+  render(
+    <EchoTranscript fragments={fragments} unlocked={["one", "two"]} activeId="two" onSelect={() => {}} onReadingChange={onReadingChange} />,
+  );
+  const first = screen.getByRole("button", { name: "回看第 1 段" });
+  const second = screen.getByRole("button", { name: "回看第 2 段" });
+
+  fireEvent.focus(first);
+  expect(onReadingChange).toHaveBeenLastCalledWith(true);
+  fireEvent.blur(first, { relatedTarget: second });
+  expect(onReadingChange).toHaveBeenCalledTimes(1);
+  fireEvent.focus(second, { relatedTarget: first });
+  fireEvent.blur(second, { relatedTarget: document.body });
+  expect(onReadingChange).toHaveBeenLastCalledWith(false);
+});

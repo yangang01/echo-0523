@@ -1,12 +1,5 @@
 import { createExperience, reduceExperience } from "../lib/experience";
 
-test("advances only when the current scene completes", () => {
-  const initial = createExperience();
-  expect(reduceExperience(initial, { type: "NEXT" }).scene).toBe("wake");
-  const ready = reduceExperience(initial, { type: "SCENE_COMPLETE", scene: "wake" });
-  expect(reduceExperience(ready, { type: "NEXT" }).scene).toBe("jealousy");
-});
-
 test("ADVANCE_TO accepts only the canonical next scene after completion", () => {
   const initial = createExperience();
   const completed = reduceExperience(initial, { type: "SCENE_COMPLETE", scene: "wake" });

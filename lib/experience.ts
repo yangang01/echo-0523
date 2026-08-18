@@ -16,7 +16,6 @@ export type ExperienceState = {
 };
 export type ExperienceEvent =
   | { type: "SCENE_COMPLETE"; scene: SceneId }
-  | { type: "NEXT" }
   | { type: "ADVANCE_TO"; from: SceneId; to: SceneId }
   | { type: "RESPONSE_SELECTED"; response: ResponseType }
   | { type: "SOUND_SET"; enabled: boolean }
@@ -74,11 +73,6 @@ export function reduceExperience(state: ExperienceState, event: ExperienceEvent)
   if (event.type === "SCENE_COMPLETE") {
     if (event.scene !== state.scene || state.completed.includes(event.scene)) return state;
     return { ...state, completed: [...state.completed, event.scene] };
-  }
-  if (event.type === "NEXT") {
-    if (!state.completed.includes(state.scene)) return state;
-    const index = sceneOrder.indexOf(state.scene);
-    return { ...state, scene: sceneOrder[Math.min(index + 1, sceneOrder.length - 1)] };
   }
   if (event.type === "ADVANCE_TO") {
     const index = sceneOrder.indexOf(state.scene);
