@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { StrictMode, useState } from "react";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, test, vi } from "vitest";
 import { sceneTimelines } from "../lib/scene-timelines";
-import { ConfessionScene, FinaleScene, GameScene, JealousyScene, NightScene, PrivilegeScene, SignalScene, WakeScene } from "../components/experience/scenes";
+import { signalChannels } from "../lib/content";
+import { ConfessionScene, FinaleScene, GameScene, JealousyScene, NightScene, PrivilegeScene, resolveSignalCue, SignalScene, WakeScene } from "../components/experience/scenes";
 
 const noop = () => undefined;
 let visibilityDescriptor: PropertyDescriptor | undefined;
@@ -109,6 +110,23 @@ test("wake keyboard fallback begins the same timeline and context menus stay loc
   expect(fireEvent.contextMenu(root)).toBe(true);
 });
 
+test("wake clears pointer ownership even when capture release throws", () => {
+  vi.useFakeTimers();
+  const onReveal = vi.fn();
+  render(<WakeScene onComplete={noop} onReveal={onReveal} />);
+  const root = document.querySelector(".gravity-intro")!;
+  const y = screen.getByRole("button", { name: "把 Y 靠近 U" });
+  vi.spyOn(root, "getBoundingClientRect").mockReturnValue({ left: 0, top: 0, width: 200, height: 100 } as DOMRect);
+  Object.assign(y, { setPointerCapture: vi.fn(), hasPointerCapture: () => true, releasePointerCapture: () => { throw new Error("capture vanished"); } });
+
+  pointer(y, "pointerdown", { pointerId: 1 });
+  expect(() => pointer(y, "pointercancel", { pointerId: 1 })).not.toThrow();
+  pointer(y, "pointerdown", { pointerId: 2 });
+  pointer(y, "pointermove", { pointerId: 2, clientX: 128, clientY: 48 });
+  act(() => vi.advanceTimersByTime(sceneTimelines.wake.reveals[0].at));
+  expect(onReveal).toHaveBeenCalledWith("spark");
+});
+
 test("jealousy decodes continuous range input without a pulse control", () => {
   const onComplete = vi.fn();
   const onReveal = vi.fn();
@@ -155,6 +173,34 @@ test.each(automaticScenes)("%s cleans automatic timers on inactive rerender and 
   expect(onComplete).not.toHaveBeenCalled();
 });
 
+test("automatic scenes do not duplicate timers in StrictMode", () => {
+  vi.useFakeTimers();
+  const onComplete = vi.fn();
+  const onReveal = vi.fn();
+  render(<StrictMode><GameScene onComplete={onComplete} onReveal={onReveal} /></StrictMode>);
+  act(() => vi.advanceTimersByTime(sceneTimelines.game.presentMs));
+  expect(onReveal.mock.calls.map(([id]) => id)).toEqual(["near", "sync", "through", "complete"]);
+  expect(onComplete).toHaveBeenCalledOnce();
+});
+
+test("automatic scenes restart pending timers from zero after reactivation without duplicate callbacks", () => {
+  vi.useFakeTimers();
+  const onComplete = vi.fn();
+  const onReveal = vi.fn();
+  const { rerender } = render(<GameScene onComplete={onComplete} onReveal={onReveal} />);
+  act(() => vi.advanceTimersByTime(sceneTimelines.game.reveals[0].at));
+  rerender(<GameScene active={false} onComplete={onComplete} onReveal={onReveal} />);
+  act(() => vi.advanceTimersByTime(sceneTimelines.game.presentMs));
+  expect(onReveal.mock.calls.map(([id]) => id)).toEqual(["near"]);
+  rerender(<GameScene onComplete={onComplete} onReveal={onReveal} />);
+  act(() => vi.advanceTimersByTime(sceneTimelines.game.reveals[1].at - 1));
+  expect(onReveal.mock.calls.map(([id]) => id)).toEqual(["near"]);
+  act(() => vi.advanceTimersByTime(1));
+  expect(onReveal.mock.calls.map(([id]) => id)).toEqual(["near", "sync"]);
+  act(() => vi.advanceTimersByTime(sceneTimelines.game.presentMs - sceneTimelines.game.reveals[1].at));
+  expect(onComplete).toHaveBeenCalledOnce();
+});
+
 test("signal locks one selected channel then schedules channel-derived replies", () => {
   vi.useFakeTimers();
   const onResponse = vi.fn();
@@ -167,7 +213,22 @@ test("signal locks one selected channel then schedules channel-derived replies",
   expect(onChannelSelected).toHaveBeenCalledOnce();
   expect(onChannelSelected).toHaveBeenCalledWith("rant");
   expect(screen.queryAllByRole("button")).toHaveLength(0);
-  act(() => vi.advanceTimersByTime(5000));
+  const responses = signalChannels.find((channel) => channel.id === "rant")!.responses;
+  expect(screen.queryByText(responses[0].text)).not.toBeInTheDocument();
+  act(() => vi.advanceTimersByTime(1200));
+  expect(screen.getByText(responses[0].text)).toBeInTheDocument();
+  expect(document.querySelector(".response-live")).toHaveTextContent(responses[0].text);
+  expect(screen.getByRole("status")).toHaveTextContent(responses[0].text);
+  expect(screen.queryByText(responses[1].text)).not.toBeInTheDocument();
+  act(() => vi.advanceTimersByTime(1900));
+  expect(screen.getByText(responses[1].text)).toBeInTheDocument();
+  expect(document.querySelector(".response-live")).toHaveTextContent(responses[1].text);
+  expect(screen.getByRole("status")).toHaveTextContent(responses[1].text);
+  expect(screen.queryByText(responses[2].text)).not.toBeInTheDocument();
+  act(() => vi.advanceTimersByTime(1900));
+  expect(screen.getByText(responses[2].text)).toBeInTheDocument();
+  expect(document.querySelector(".response-live")).toHaveTextContent(responses[2].text);
+  expect(screen.getByRole("status")).toHaveTextContent(responses[2].text);
   expect(onResponse.mock.calls.map(([type]) => type)).toEqual(["curious", "compliment", "ally"]);
   expect(onReveal.mock.calls.map(([id]) => id)).toEqual(["curious", "compliment", "ally"]);
   act(() => vi.advanceTimersByTime(1300));
@@ -175,6 +236,13 @@ test("signal locks one selected channel then schedules channel-derived replies",
   expect(onComplete).not.toHaveBeenCalled();
   act(() => vi.advanceTimersByTime(900));
   expect(onComplete).toHaveBeenCalledOnce();
+});
+
+test("signal cue resolver ignores malformed response slots", () => {
+  const channel = signalChannels[0];
+  expect(resolveSignalCue({ at: 1, id: "$response:bad" }, channel)).toBeNull();
+  expect(resolveSignalCue({ at: 1, id: "$response:9" }, channel)).toBeNull();
+  expect(resolveSignalCue({ at: 1, id: "$response:1" }, channel)).toEqual({ at: 1, id: "compliment" });
 });
 
 test("signal cleans timers and disables choice controls while inactive", () => {
@@ -191,15 +259,19 @@ test("signal cleans timers and disables choice controls while inactive", () => {
   expect(onResponse).not.toHaveBeenCalled();
 });
 
-test("finale unveils its ending only at echo and completes at its present time", () => {
+test("finale keeps its relationship clock running from entry until unmount", () => {
   vi.useFakeTimers();
   const onComplete = vi.fn();
   const onReveal = vi.fn();
-  const { unmount } = render(<FinaleScene onComplete={onComplete} onReveal={onReveal} onRestart={noop} />);
+  const { rerender, unmount } = render(<FinaleScene onComplete={onComplete} onReveal={onReveal} onRestart={noop} />);
   expect(document.querySelector(".finale-coordinate")).toHaveTextContent("05:23");
+  const clock = document.querySelector(".love-clock")!;
+  const beforeEcho = clock.textContent;
   expect(screen.queryByText("你说的有的没的，在我这里都不是小事。")).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "读取回音 1 / 3" })).not.toBeInTheDocument();
-  act(() => vi.advanceTimersByTime(sceneTimelines.finale.reveals[2].at - 1));
+  act(() => vi.advanceTimersByTime(1000));
+  expect(clock.textContent).not.toBe(beforeEcho);
+  act(() => vi.advanceTimersByTime(sceneTimelines.finale.reveals[2].at - 1001));
   expect(screen.queryByRole("button", { name: "重新进入这片宇宙" })).not.toBeInTheDocument();
   act(() => vi.advanceTimersByTime(1));
   expect(document.querySelector(".final-line")).toHaveTextContent("你说的有的没的，在我这里都不是小事。");
@@ -208,7 +280,12 @@ test("finale unveils its ending only at echo and completes at its present time",
   act(() => vi.advanceTimersByTime(sceneTimelines.finale.presentMs - sceneTimelines.finale.reveals[2].at));
   expect(onReveal.mock.calls.map(([id]) => id)).toEqual(["recap", "present", "echo"]);
   expect(onComplete).toHaveBeenCalledOnce();
+  rerender(<FinaleScene active={false} onComplete={onComplete} onReveal={onReveal} onRestart={noop} />);
+  const afterPresentation = clock.textContent;
+  act(() => vi.advanceTimersByTime(1000));
+  expect(clock.textContent).not.toBe(afterPresentation);
   unmount();
+  expect(vi.getTimerCount()).toBe(0);
 });
 
 test("finale cleans its automatic recap and clock timers when inactive", () => {

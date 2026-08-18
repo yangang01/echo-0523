@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { finalCopy, signalChannels, type SignalChannelId } from "../../lib/content";
+import { finalCopy, signalChannels, type SignalChannel, type SignalChannelId } from "../../lib/content";
 import type { ResponseType } from "../../lib/experience";
 import { attractionProgress } from "../../lib/gestures";
 import { elapsedSinceConfession } from "../../lib/relationship-time";
@@ -59,12 +59,17 @@ export function WakeScene({ onComplete, onReveal, active = true }: BasicProps) {
   const [attracted, setAttracted] = useState(false);
   const revealOnce = useRevealOnce(onReveal);
 
-  const releaseOwner = useCallback((reset = false) => {
+  const releaseOwner = useCallback((reset = false, updateState = true) => {
     const pointerId = ownerPointer.current;
     const button = root.current?.querySelector<HTMLButtonElement>(".gravity-y");
-    if (pointerId !== null && button?.hasPointerCapture?.(pointerId)) button.releasePointerCapture?.(pointerId);
-    ownerPointer.current = null;
-    if (reset && !attractedRef.current) setProgress(0);
+    try {
+      if (pointerId !== null && button?.hasPointerCapture?.(pointerId)) button.releasePointerCapture?.(pointerId);
+    } catch {
+      // Pointer capture can be implicitly released by the browser before teardown.
+    } finally {
+      ownerPointer.current = null;
+    }
+    if (reset && updateState && !attractedRef.current) setProgress(0);
   }, []);
 
   useEffect(() => {
@@ -75,7 +80,7 @@ export function WakeScene({ onComplete, onReveal, active = true }: BasicProps) {
     return () => {
       window.removeEventListener("blur", cancel);
       document.removeEventListener("visibilitychange", hidden);
-      cancel();
+      releaseOwner(false, false);
     };
   }, [releaseOwner]);
 
@@ -161,6 +166,13 @@ export function PrivilegeScene({ onComplete, onReveal, active = true }: BasicPro
   return <div className="privilege-bloom" role="status" aria-label="偏爱轨道正在点亮"><span aria-hidden="true">{"✦\u3000✧\u3000✦"}</span><strong>偏爱轨道正在点亮</strong></div>;
 }
 
+export function resolveSignalCue(cue: RevealCue, channel: SignalChannel): RevealCue | null {
+  if (!cue.id.startsWith("$response:")) return cue;
+  const responseIndex = Number(cue.id.slice("$response:".length));
+  if (!Number.isInteger(responseIndex) || responseIndex < 0 || responseIndex >= channel.responses.length) return null;
+  return { ...cue, id: channel.responses[responseIndex].type };
+}
+
 export function SignalScene({ onResponse, onComplete, onReveal, onChannelSelected, active = true }: BasicProps & { onResponse: (type: ResponseType) => void; onChannelSelected: (channelId: SignalChannelId) => void }) {
   const [channelId, setChannelId] = useState<SignalChannelId | null>(null);
   const [heard, setHeard] = useState<ResponseType[]>([]);
@@ -170,10 +182,9 @@ export function SignalScene({ onResponse, onComplete, onReveal, onChannelSelecte
   const channel = useMemo(() => signalChannels.find((item) => item.id === channelId), [channelId]);
   const cues = useMemo<readonly RevealCue[]>(() => {
     if (!channel) return sceneTimelines.signal.reveals;
-    return sceneTimelines.signal.reveals.map((cue) => {
-      if (!cue.id.startsWith("$response:")) return cue;
-      const responseIndex = Number(cue.id.slice("$response:".length));
-      return { ...cue, id: channel.responses[responseIndex].type };
+    return sceneTimelines.signal.reveals.flatMap((cue) => {
+      const resolved = resolveSignalCue(cue, channel);
+      return resolved ? [resolved] : [];
     });
   }, [channel]);
   const handleCue = useCallback((id: string) => {
@@ -194,7 +205,8 @@ export function SignalScene({ onResponse, onComplete, onReveal, onChannelSelecte
     setChannelId(item.id);
   }} aria-label={item.label}><i>{item.icon}</i><span>{item.label}</span></button>)}</div>;
 
-  return <div className="response-console" role="status"><p className="selected-channel">频道已接通 · {channel.label}</p>{channel.responses.map((item) => <p key={item.type} className={heard.includes(item.type) ? "heard" : ""}><b>{item.label}</b><span>{item.text}</span></p>)}</div>;
+  const latest = channel.responses.findLast((item) => heard.includes(item.type));
+  return <div className="response-console"><p className="selected-channel">频道已接通 · {channel.label}</p><div className="response-live" role="status" aria-live="polite">{latest ? <><b>{latest.label}</b><span>{latest.text}</span></> : null}</div></div>;
 }
 
 export function GameScene({ onComplete, onReveal, active = true }: BasicProps) {
@@ -219,10 +231,9 @@ export function FinaleScene({ onComplete, onReveal, onRestart, active = true }: 
   }, [revealOnce]);
   useAutomaticScene(sceneTimelines.finale.reveals, sceneTimelines.finale.presentMs, reveal, onComplete, active);
   useEffect(() => {
-    if (!active) return;
     const timer = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(timer);
-  }, [active]);
+  }, []);
   const elapsed = useMemo(() => elapsedSinceConfession(now), [now]);
-  return <div className="finale-copy"><div className="finale-coordinate" aria-hidden="true">05:23</div>{echoOpen ? <><p className="final-line">{finalCopy.lines[0]}<br />{finalCopy.lines[1]}</p><div className="love-clock"><span><b>{elapsed.days}</b>天</span><span><b>{elapsed.hours}</b>时</span><span><b>{elapsed.minutes}</b>分</span><span><b>{elapsed.seconds}</b>秒</span></div><p className="signature">TO {finalCopy.to}<br />FROM {finalCopy.from}<br />SINCE {finalCopy.since}</p><button className="replay-button" onClick={onRestart}>重新进入这片宇宙</button></> : <p role="status">正在汇聚回音</p>}</div>;
+  return <div className="finale-copy"><div className="finale-coordinate" aria-hidden="true">05:23</div><div className="love-clock"><span><b>{elapsed.days}</b>天</span><span><b>{elapsed.hours}</b>时</span><span><b>{elapsed.minutes}</b>分</span><span><b>{elapsed.seconds}</b>秒</span></div>{echoOpen ? <><p className="final-line">{finalCopy.lines[0]}<br />{finalCopy.lines[1]}</p><p className="signature">TO {finalCopy.to}<br />FROM {finalCopy.from}<br />SINCE {finalCopy.since}</p><button className="replay-button" onClick={onRestart}>重新进入这片宇宙</button></> : <p role="status">正在汇聚回音</p>}</div>;
 }
