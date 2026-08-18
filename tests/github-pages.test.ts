@@ -15,6 +15,22 @@ function readProjectFile(path: string) {
   return readFileSync(resolve(process.cwd(), path), "utf8");
 }
 
+function readIndentedBlock(source: string, heading: string, indentation: number) {
+  const prefix = " ".repeat(indentation);
+  const headingStart = source.indexOf(`${prefix}${heading}:`);
+  expect(headingStart, `${heading} block exists`).toBeGreaterThanOrEqual(0);
+
+  const blockStart = source.indexOf("\n", headingStart) + 1;
+  const remainingSource = source.slice(blockStart);
+  const nextPeer = remainingSource.search(
+    new RegExp(`^${prefix}\\S[^\\n]*:`, "m"),
+  );
+
+  return nextPeer === -1
+    ? remainingSource
+    : remainingSource.slice(0, nextPeer);
+}
+
 const temporaryBuilds: string[] = [];
 
 function createTemporaryBuild() {
@@ -56,6 +72,65 @@ afterEach(() => {
 });
 
 describe("GitHub Pages static build", () => {
+  it("defines a least-privilege GitHub Pages deployment workflow", () => {
+    const workflowPath = ".github/workflows/deploy-pages.yml";
+    expect(existsSync(resolve(process.cwd(), workflowPath))).toBe(true);
+    const workflow = readProjectFile(workflowPath);
+    const permissions = readIndentedBlock(workflow, "permissions", 0);
+    const concurrency = readIndentedBlock(workflow, "concurrency", 0);
+    const triggers = readIndentedBlock(workflow, "on", 0);
+
+    expect(workflow).toMatch(/^name: Deploy GitHub Pages$/m);
+    expect(triggers).toMatch(/^ {2}push:\n {4}branches:\n {6}- main$/m);
+    expect(triggers).toMatch(/^ {2}workflow_dispatch:$/m);
+    expect(permissions.trim().split("\n").map((line) => line.trim())).toEqual([
+      "contents: read",
+      "pages: write",
+      "id-token: write",
+    ]);
+    expect(concurrency.trim().split("\n").map((line) => line.trim())).toEqual([
+      "group: pages",
+      "cancel-in-progress: true",
+    ]);
+  });
+
+  it("tests, builds, verifies, and deploys the Pages artifact in one job", () => {
+    const workflowPath = ".github/workflows/deploy-pages.yml";
+    expect(existsSync(resolve(process.cwd(), workflowPath))).toBe(true);
+    const workflow = readProjectFile(workflowPath);
+    const jobs = readIndentedBlock(workflow, "jobs", 0);
+    const deployJob = readIndentedBlock(jobs, "deploy", 2);
+
+    expect(jobs).not.toMatch(/^ {2}(?!deploy:)\S[^\n]*:/m);
+    expect(deployJob).toMatch(/^ {4}runs-on: ubuntu-latest$/m);
+    expect(deployJob).toMatch(
+      /^ {4}environment:\n {6}name: github-pages\n {6}url: \$\{\{ steps\.deployment\.outputs\.page_url \}\}$/m,
+    );
+
+    const steps = Array.from(
+      deployJob.matchAll(/^ {6}- (uses|run): (.+)$/gm),
+      ([, kind, value]) => `${kind}: ${value}`,
+    );
+
+    expect(steps).toEqual([
+      "uses: actions/checkout@v4",
+      "uses: pnpm/action-setup@v4",
+      "uses: actions/setup-node@v4",
+      "run: pnpm install --frozen-lockfile",
+      "run: pnpm exec vitest run",
+      "run: pnpm run build:pages",
+      "run: pnpm run verify:pages",
+      "uses: actions/configure-pages@v5",
+      "uses: actions/upload-pages-artifact@v3",
+      "uses: actions/deploy-pages@v4",
+    ]);
+    expect(deployJob).toMatch(/^ {10}version: 10$/m);
+    expect(deployJob).toMatch(/^ {10}node-version: 22$/m);
+    expect(deployJob).toMatch(/^ {10}cache: pnpm$/m);
+    expect(deployJob).toMatch(/^ {10}path: dist-github-pages$/m);
+    expect(deployJob).toMatch(/^ {8}id: deployment$/m);
+  });
+
   it("provides a localized HTML shell for the static React entry point", () => {
     const html = readProjectFile("github-pages/index.html");
 
