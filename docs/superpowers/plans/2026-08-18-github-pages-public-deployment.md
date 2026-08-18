@@ -284,4 +284,3 @@ Open the public Pages URL in Codex, then return:
 
 - Repository: `https://github.com/yangang01/qixi-0523-echo-core`
 - Public Page: `https://yangang01.github.io/qixi-0523-echo-core/`
-
