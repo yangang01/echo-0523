@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { act, render, waitFor } from "@testing-library/react";
+import { hydrateRoot } from "react-dom/client";
+import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import * as THREE from "three";
 import {
@@ -173,6 +175,31 @@ test("renders an accessible YU emblem when WebGL is unavailable", () => {
 
   expect(document.querySelector("canvas")).not.toBeInTheDocument();
   expect(document.querySelector('[role="img"][aria-label="Y 融入 U 的双星星徽"]')).toBeInTheDocument();
+});
+
+test("hydrates stable fallback markup before promoting to the WebGL canvas", async () => {
+  Object.defineProperty(globalThis, "WebGLRenderingContext", { configurable: true, value: undefined });
+  const markup = renderToString(<TwinGravityCanvas scene="wake" phase="enter" growth={growth} />);
+  expect(markup).toContain('aria-label="Y 融入 U 的双星星徽"');
+  expect(markup).not.toContain("<canvas");
+
+  const container = document.createElement("div");
+  container.innerHTML = markup;
+  document.body.append(container);
+  Object.defineProperty(globalThis, "WebGLRenderingContext", { configurable: true, value: class WebGLRenderingContext {} });
+  const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+  let root: ReturnType<typeof hydrateRoot>;
+
+  await act(async () => {
+    root = hydrateRoot(container, <TwinGravityCanvas scene="wake" phase="enter" growth={growth} />);
+    await Promise.resolve();
+  });
+  await waitFor(() => expect(container.querySelector('canvas[aria-label="Y 与 U 双星引力动态视觉"]')).toBeInTheDocument());
+  expect(container.querySelector('[role="img"][aria-label="Y 融入 U 的双星星徽"]')).not.toBeInTheDocument();
+  expect(errors).not.toHaveBeenCalled();
+
+  act(() => root!.unmount());
+  container.remove();
 });
 
 test("falls back safely when renderer construction throws", async () => {

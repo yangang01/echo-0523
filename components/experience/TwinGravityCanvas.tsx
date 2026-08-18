@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import * as THREE from "three";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
@@ -14,6 +14,10 @@ import { sceneTimelines, type MotionCue } from "../../lib/scene-timelines";
 
 type Props = { scene: SceneId; phase: DirectorPhase; growth: Growth };
 type Disposable = { dispose: () => void };
+
+const subscribeWebGLCapability = () => () => {};
+const clientWebGLSnapshot = () => typeof WebGLRenderingContext !== "undefined";
+const serverWebGLSnapshot = () => false;
 
 export type MotionEnvelope = Readonly<{
   cameraZ: number;
@@ -308,13 +312,14 @@ export function TwinGravityCanvas({ scene, phase, growth }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const liveRef = useRef({ scene, phase, growth });
   const [rendererFailed, setRendererFailed] = useState(false);
-  const webglUnavailable = typeof WebGLRenderingContext === "undefined";
+  const webglAvailable = useSyncExternalStore(subscribeWebGLCapability, clientWebGLSnapshot, serverWebGLSnapshot);
 
   useLayoutEffect(() => {
     liveRef.current = { scene, phase, growth };
   }, [growth, phase, scene]);
 
   useEffect(() => {
+    if (!webglAvailable) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
 
@@ -693,8 +698,8 @@ export function TwinGravityCanvas({ scene, phase, growth }: Props) {
         disposeAll();
       };
     }
-  }, []);
+  }, [webglAvailable]);
 
-  if (webglUnavailable || rendererFailed) return fallbackEmblem();
+  if (!webglAvailable || rendererFailed) return fallbackEmblem();
   return <canvas ref={canvasRef} className="echo-canvas" data-sculpture={scene} data-phase={phase} aria-label="Y 与 U 双星引力动态视觉" />;
 }
