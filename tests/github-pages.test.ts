@@ -38,6 +38,62 @@ type WorkflowStep = {
   [property: string]: string | Record<string, string> | undefined;
 };
 
+const pinnedActions = [
+  { action: "actions/checkout", major: "v4" },
+  { action: "pnpm/action-setup", major: "v4" },
+  { action: "actions/setup-node", major: "v4" },
+  { action: "actions/configure-pages", major: "v5" },
+  { action: "actions/upload-pages-artifact", major: "v3" },
+  { action: "actions/deploy-pages", major: "v4" },
+] as const;
+
+function escapeRegex(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function actionName(reference: string | undefined) {
+  return reference?.match(/^([^@]+)@/)?.[1];
+}
+
+function findActionStep(steps: WorkflowStep[], action: string) {
+  return steps.find((step) => actionName(step.uses) === action);
+}
+
+function expectPinnedAction(
+  steps: WorkflowStep[],
+  action: string,
+  major: string,
+) {
+  const step = findActionStep(steps, action);
+  expect(step, `${action} step exists`).toBeDefined();
+  expect(step?.uses).toMatch(
+    new RegExp(`^${escapeRegex(action)}@[0-9a-f]{40} # ${major}$`),
+  );
+}
+
+function createHardenedWorkflowFixture(workflow: string) {
+  const dummySha = "a".repeat(40);
+  let hardened = workflow.replace(
+    "  cancel-in-progress: true",
+    "  cancel-in-progress: false",
+  );
+
+  for (const { action, major } of pinnedActions) {
+    hardened = hardened.replace(
+      new RegExp(
+        `${escapeRegex(action)}@(?:${major}|[0-9a-f]{40})(?: # ${major})?`,
+      ),
+      `${action}@${dummySha} # ${major}`,
+    );
+  }
+
+  return hardened;
+}
+
+function fixtureAction(action: string, major: string) {
+  return `${action}@${"a".repeat(40)} # ${major}`;
+}
+
 function readDeploySteps(deployJob: string) {
   const lines = deployJob.split("\n");
   const stepsHeading = lines.indexOf("    steps:");
@@ -89,34 +145,36 @@ function expectDeployJobContract(workflow: string) {
   expect(deployJob).toMatch(
     /^ {4}environment:\n {6}name: github-pages\n {6}url: \$\{\{ steps\.deployment\.outputs\.page_url \}\}$/m,
   );
+  expect(deployJob).not.toMatch(/^ {4}(?:if|continue-on-error):/m);
 
   const steps = readDeploySteps(deployJob);
 
-  expect(steps.map((step) => step.uses ?? `run: ${step.run}`)).toEqual([
-    "actions/checkout@v4",
-    "pnpm/action-setup@v4",
-    "actions/setup-node@v4",
+  expect(
+    steps.map((step) => actionName(step.uses) ?? `run: ${step.run}`),
+  ).toEqual([
+    "actions/checkout",
+    "pnpm/action-setup",
+    "actions/setup-node",
     "run: pnpm install --frozen-lockfile",
     "run: pnpm exec vitest run",
     "run: pnpm run build:pages",
     "run: pnpm run verify:pages",
-    "actions/configure-pages@v5",
-    "actions/upload-pages-artifact@v3",
-    "actions/deploy-pages@v4",
+    "actions/configure-pages",
+    "actions/upload-pages-artifact",
+    "actions/deploy-pages",
   ]);
 
-  const pnpmSetup = steps.find(
-    (step) => step.uses === "pnpm/action-setup@v4",
+  for (const { action, major } of pinnedActions) {
+    expectPinnedAction(steps, action, major);
+  }
+
+  const pnpmSetup = findActionStep(steps, "pnpm/action-setup");
+  const nodeSetup = findActionStep(steps, "actions/setup-node");
+  const artifactUpload = findActionStep(
+    steps,
+    "actions/upload-pages-artifact",
   );
-  const nodeSetup = steps.find(
-    (step) => step.uses === "actions/setup-node@v4",
-  );
-  const artifactUpload = steps.find(
-    (step) => step.uses === "actions/upload-pages-artifact@v3",
-  );
-  const pagesDeployment = steps.find(
-    (step) => step.uses === "actions/deploy-pages@v4",
-  );
+  const pagesDeployment = findActionStep(steps, "actions/deploy-pages");
   const artifactVerification = steps.find(
     (step) => step.run === "pnpm run verify:pages",
   );
@@ -191,7 +249,7 @@ describe("GitHub Pages static build", () => {
     ]);
     expect(concurrency.trim().split("\n").map((line) => line.trim())).toEqual([
       "group: pages",
-      "cancel-in-progress: true",
+      "cancel-in-progress: false",
     ]);
   });
 
@@ -208,32 +266,32 @@ describe("GitHub Pages static build", () => {
       name: "pnpm version attached to setup-node",
       mutate: (workflow: string) =>
         workflow.replace(
-          "      - uses: pnpm/action-setup@v4\n        with:\n          version: 10\n      - uses: actions/setup-node@v4\n        with:\n",
-          "      - uses: pnpm/action-setup@v4\n      - uses: actions/setup-node@v4\n        with:\n          version: 10\n",
+          `      - uses: ${fixtureAction("pnpm/action-setup", "v4")}\n        with:\n          version: 10\n      - uses: ${fixtureAction("actions/setup-node", "v4")}\n        with:\n`,
+          `      - uses: ${fixtureAction("pnpm/action-setup", "v4")}\n      - uses: ${fixtureAction("actions/setup-node", "v4")}\n        with:\n          version: 10\n`,
         ),
     },
     {
       name: "Node settings attached to pnpm setup",
       mutate: (workflow: string) =>
         workflow.replace(
-          "      - uses: pnpm/action-setup@v4\n        with:\n          version: 10\n      - uses: actions/setup-node@v4\n        with:\n          node-version: 22\n          cache: pnpm\n",
-          "      - uses: pnpm/action-setup@v4\n        with:\n          version: 10\n          node-version: 22\n          cache: pnpm\n      - uses: actions/setup-node@v4\n",
+          `      - uses: ${fixtureAction("pnpm/action-setup", "v4")}\n        with:\n          version: 10\n      - uses: ${fixtureAction("actions/setup-node", "v4")}\n        with:\n          node-version: 22\n          cache: pnpm\n`,
+          `      - uses: ${fixtureAction("pnpm/action-setup", "v4")}\n        with:\n          version: 10\n          node-version: 22\n          cache: pnpm\n      - uses: ${fixtureAction("actions/setup-node", "v4")}\n`,
         ),
     },
     {
       name: "artifact path attached to deploy-pages",
       mutate: (workflow: string) =>
         workflow.replace(
-          "      - uses: actions/upload-pages-artifact@v3\n        with:\n          path: dist-github-pages\n      - uses: actions/deploy-pages@v4\n        id: deployment\n",
-          "      - uses: actions/upload-pages-artifact@v3\n      - uses: actions/deploy-pages@v4\n        with:\n          path: dist-github-pages\n        id: deployment\n",
+          `      - uses: ${fixtureAction("actions/upload-pages-artifact", "v3")}\n        with:\n          path: dist-github-pages\n      - uses: ${fixtureAction("actions/deploy-pages", "v4")}\n        id: deployment\n`,
+          `      - uses: ${fixtureAction("actions/upload-pages-artifact", "v3")}\n      - uses: ${fixtureAction("actions/deploy-pages", "v4")}\n        with:\n          path: dist-github-pages\n        id: deployment\n`,
         ),
     },
     {
       name: "deployment id attached to the upload step",
       mutate: (workflow: string) =>
         workflow.replace(
-          "          path: dist-github-pages\n      - uses: actions/deploy-pages@v4\n        id: deployment\n",
-          "          path: dist-github-pages\n        id: deployment\n      - uses: actions/deploy-pages@v4\n",
+          `          path: dist-github-pages\n      - uses: ${fixtureAction("actions/deploy-pages", "v4")}\n        id: deployment\n`,
+          `          path: dist-github-pages\n        id: deployment\n      - uses: ${fixtureAction("actions/deploy-pages", "v4")}\n`,
         ),
     },
     {
@@ -253,8 +311,37 @@ describe("GitHub Pages static build", () => {
         ),
     },
   ])("rejects $name", ({ mutate }) => {
-    const workflow = readProjectFile(".github/workflows/deploy-pages.yml");
+    const workflow = createHardenedWorkflowFixture(
+      readProjectFile(".github/workflows/deploy-pages.yml"),
+    );
     const mutatedWorkflow = mutate(workflow);
+
+    expect(mutatedWorkflow).not.toBe(workflow);
+    expect(() => expectDeployJobContract(mutatedWorkflow)).toThrow();
+  });
+
+  it.each(pinnedActions)("rejects a movable $action@$major tag", (pin) => {
+    const workflow = readProjectFile(".github/workflows/deploy-pages.yml");
+    const hardenedWorkflow = createHardenedWorkflowFixture(workflow);
+    const dummySha = "a".repeat(40);
+    const mutatedWorkflow = hardenedWorkflow.replace(
+      `${pin.action}@${dummySha} # ${pin.major}`,
+      `${pin.action}@${pin.major} # ${pin.major}`,
+    );
+
+    expect(() => expectDeployJobContract(hardenedWorkflow)).not.toThrow();
+    expect(mutatedWorkflow).not.toBe(hardenedWorkflow);
+    expect(() => expectDeployJobContract(mutatedWorkflow)).toThrow();
+  });
+
+  it("rejects a deploy job that is explicitly skipped", () => {
+    const workflow = createHardenedWorkflowFixture(
+      readProjectFile(".github/workflows/deploy-pages.yml"),
+    );
+    const mutatedWorkflow = workflow.replace(
+      "  deploy:\n",
+      "  deploy:\n    if: false\n",
+    );
 
     expect(mutatedWorkflow).not.toBe(workflow);
     expect(() => expectDeployJobContract(mutatedWorkflow)).toThrow();
