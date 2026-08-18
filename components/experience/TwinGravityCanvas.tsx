@@ -59,6 +59,7 @@ export type SceneVisualState = Readonly<{
   anchors: ReturnType<typeof sceneGravityAnchors>;
   motion: MotionCue;
   envelope: MotionEnvelope;
+  tint: THREE.Color;
 }>;
 
 function createSceneVisualStates(reducedMotion: boolean): Readonly<Record<SceneId, SceneVisualState>> {
@@ -69,7 +70,9 @@ function createSceneVisualStates(reducedMotion: boolean): Readonly<Record<SceneI
       Object.freeze(anchors.u);
       Object.freeze(anchors);
       const motion = sceneTimelines[scene].motion;
-      return [scene, Object.freeze({ anchors, motion, envelope: motionEnvelope(motion, reducedMotion) })];
+      const envelope = motionEnvelope(motion, reducedMotion);
+      const tint = Object.freeze(new THREE.Color(envelope.tint)) as THREE.Color;
+      return [scene, Object.freeze({ anchors, motion, envelope, tint })];
     }),
   ) as Readonly<Record<SceneId, SceneVisualState>>;
 }
@@ -403,7 +406,7 @@ export function TwinGravityCanvas({ scene, phase, growth }: Props) {
         uPointer: { value: new THREE.Vector2() },
         uGravityY: { value: new THREE.Vector3(...initialAnchors.y) },
         uGravityU: { value: new THREE.Vector3(...initialAnchors.u) },
-        uSceneTint: { value: new THREE.Color(initialEnvelope.tint) },
+        uSceneTint: { value: initialVisualState.tint.clone() },
       };
       const particleMaterial = new THREE.ShaderMaterial({
         vertexShader,
@@ -528,7 +531,7 @@ export function TwinGravityCanvas({ scene, phase, growth }: Props) {
       let coreScale = initialEnvelope.coreScale;
       const targetY = new THREE.Vector3(...initialAnchors.y);
       const targetU = new THREE.Vector3(...initialAnchors.u);
-      const desiredTint = new THREE.Color(initialEnvelope.tint);
+      const desiredTint = initialVisualState.tint.clone();
       let contextLost = false;
 
       const renderFrame = () => {
@@ -546,7 +549,10 @@ export function TwinGravityCanvas({ scene, phase, growth }: Props) {
           positions.needsUpdate = true;
           destinations.copyArray(sceneParticleTargets(current.scene, count, mode));
           destinations.needsUpdate = true;
-          if (current.scene !== activeScene) activeVisualState = sceneVisualState(current.scene, reducedMotion);
+          if (current.scene !== activeScene) {
+            activeVisualState = sceneVisualState(current.scene, reducedMotion);
+            desiredTint.copy(activeVisualState.tint);
+          }
           activeScene = current.scene;
           activeMode = mode;
           morph = 0;
@@ -570,7 +576,9 @@ export function TwinGravityCanvas({ scene, phase, growth }: Props) {
           activeQuality = pendingQuality;
           const activeProfile = qualityProfiles[activeQuality];
           particleGeometry.setDrawRange(0, Math.min(count, activeProfile.particles));
-          renderer.setPixelRatio(pixelRatioFor(activeQuality));
+          const nextPixelRatio = pixelRatioFor(activeQuality);
+          renderer.setPixelRatio(nextPixelRatio);
+          composer?.setPixelRatio(nextPixelRatio);
           if (bloomPass) bloomPass.enabled = activeProfile.bloomScale > 0;
           resize();
           qualityGovernor.commit();
@@ -595,7 +603,6 @@ export function TwinGravityCanvas({ scene, phase, growth }: Props) {
         uniforms.uPointer.value.lerp(pointer, 1 - Math.exp(-2.5 * safeDelta));
         uniforms.uGravityY.value.copy(yCore.position);
         uniforms.uGravityU.value.copy(uCore.position);
-        desiredTint.set(envelope.tint);
         uniforms.uSceneTint.value.lerp(desiredTint, 1 - Math.exp(-2.4 * safeDelta));
 
         const gentlePulse = reducedMotion ? 0 : Math.sin(elapsed * 1.15) * 0.024;

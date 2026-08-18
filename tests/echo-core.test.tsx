@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { act, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import * as THREE from "three";
 import { EchoCoreCanvas } from "../components/experience/EchoCoreCanvas";
 import {
   bakeMorphCoordinates,
@@ -28,6 +29,7 @@ const rendererState = vi.hoisted(() => ({
   pixelRatios: [] as number[],
 }));
 const rafState = { now: 0, nextId: 1, callbacks: new Map<number, FrameRequestCallback>() };
+const postprocessState = vi.hoisted(() => ({ composerPixelRatios: [] as number[], composerDispose: 0, bloomDispose: 0 }));
 
 vi.mock("three", async (importOriginal) => {
   const actual = await importOriginal<typeof import("three")>();
@@ -70,7 +72,7 @@ vi.mock("three/examples/jsm/postprocessing/UnrealBloomPass.js", () => ({
     strength: number;
     enabled = true;
     constructor(_size: unknown, strength: number) { this.strength = strength; }
-    dispose() {}
+    dispose() { postprocessState.bloomDispose += 1; }
   },
 }));
 
@@ -80,11 +82,12 @@ vi.mock("three/examples/jsm/postprocessing/EffectComposer.js", () => ({
     constructor(private renderer: { render: (scene: unknown, camera: unknown) => void }) {}
     addPass(pass: { scene?: unknown; camera?: unknown }) { this.passes.push(pass); }
     setSize() {}
+    setPixelRatio(value: number) { postprocessState.composerPixelRatios.push(value); }
     render() {
       const pass = this.passes.find(({ scene }) => scene);
       if (pass) this.renderer.render(pass.scene, pass.camera);
     }
-    dispose() {}
+    dispose() { postprocessState.composerDispose += 1; }
   },
 }));
 
@@ -118,6 +121,9 @@ beforeEach(() => {
   rendererState.world = null;
   rendererState.pixelRatios.length = 0;
   rendererState.dispose.mockClear();
+  postprocessState.composerPixelRatios.length = 0;
+  postprocessState.composerDispose = 0;
+  postprocessState.bloomDispose = 0;
 });
 
 afterEach(() => {
@@ -229,6 +235,8 @@ test("reuses cached scene anchors and envelopes without repeated objects", () =>
   expect(sceneVisualState("wake", true)).toBe(wake);
   expect(sceneVisualState("wake", true).anchors).toBe(wake.anchors);
   expect(sceneVisualState("wake", true).envelope).toBe(wake.envelope);
+  expect(wake.tint).toBeDefined();
+  expect(sceneVisualState("wake", true).tint).toBe(wake.tint);
   expect(sceneVisualState("wake", false)).not.toBe(wake);
   expect(sceneVisualState("jealousy", true)).not.toBe(wake);
 });
@@ -323,6 +331,9 @@ test("updates particle targets from live scene props without replacing the canva
 });
 
 test("normal unmount cancels animation, disposes, and removes every listener", () => {
+  useHighQuality();
+  const geometryDispose = vi.spyOn(THREE.BufferGeometry.prototype, "dispose");
+  const materialDispose = vi.spyOn(THREE.Material.prototype, "dispose");
   const windowRemove = vi.spyOn(window, "removeEventListener");
   const documentRemove = vi.spyOn(document, "removeEventListener");
   const view = render(<TwinGravityCanvas scene="wake" phase="present" growth={growth} />);
@@ -332,6 +343,10 @@ test("normal unmount cancels animation, disposes, and removes every listener", (
   view.unmount();
   expect(cancelAnimationFrame).toHaveBeenCalled();
   expect(rendererState.dispose).toHaveBeenCalledTimes(1);
+  expect(geometryDispose).toHaveBeenCalledTimes(8);
+  expect(materialDispose).toHaveBeenCalledTimes(8);
+  expect(postprocessState.composerDispose).toBe(1);
+  expect(postprocessState.bloomDispose).toBe(1);
   expect(windowRemove).toHaveBeenCalledWith("pointermove", expect.any(Function));
   expect(windowRemove).toHaveBeenCalledWith("deviceorientation", expect.any(Function));
   expect(windowRemove).toHaveBeenCalledWith("resize", expect.any(Function));
@@ -398,6 +413,13 @@ test("sustained slow frames downgrade in place only after the active morph stabi
   expect(document.querySelector("canvas")).toBe(canvas);
   expect(rendererState.constructs).toBe(1);
   expect(rendererState.pixelRatios).toContain(1.35);
+  expect(postprocessState.composerPixelRatios).toEqual([1.35]);
+
+  for (let index = 0; index < 12; index += 1) runFrame(50);
+  expect(particles.geometry.drawRange.count).toBe(7000);
+  expect(postprocessState.composerPixelRatios).toEqual([1.35, 1]);
+  expect(document.querySelector("canvas")).toBe(canvas);
+  expect(rendererState.constructs).toBe(1);
 });
 
 test("one slow frame does not downgrade the active world", () => {
