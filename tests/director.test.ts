@@ -47,6 +47,21 @@ test("resuming the final ready pause resets the complete twelve-second idle wind
   expect(reduceDirector(state, { type: "RESUME", reason: "reading", now: 901 })).toBe(state);
 });
 
+test("restarts idle only after every concurrent pause reason has resumed", () => {
+  let state = createDirector("wake");
+  state = reduceDirector(state, { type: "START_PRESENTATION", now: 0 });
+  state = reduceDirector(state, { type: "PRESENTATION_COMPLETE", now: 100 });
+  state = reduceDirector(state, { type: "PAUSE", reason: "reading", now: 200 });
+  state = reduceDirector(state, { type: "PAUSE", reason: "hidden", now: 300 });
+  expect(reduceDirector(state, { type: "PAUSE", reason: "hidden", now: 400 })).toBe(state);
+
+  state = reduceDirector(state, { type: "RESUME", reason: "reading", now: 500 });
+  expect(state).toMatchObject({ paused: ["hidden"], autoAdvanceAt: null });
+  state = reduceDirector(state, { type: "RESUME", reason: "hidden", now: 900 });
+  expect(state.autoAdvanceAt).toBe(900 + READY_IDLE_MS);
+  expect(reduceDirector(state, { type: "RESUME", reason: "hidden", now: 1000 })).toBe(state);
+});
+
 test("ignores idle expiry while paused, before schedule, or outside ready", () => {
   const entering = createDirector("wake");
   expect(reduceDirector(entering, { type: "IDLE_EXPIRED", now: 100_000 })).toBe(entering);

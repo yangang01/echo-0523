@@ -1,4 +1,5 @@
 import { sceneTimelines } from "../lib/scene-timelines";
+import { sceneEchoes, signalChannels } from "../lib/content";
 import { sceneOrder } from "../lib/experience";
 
 const expected = {
@@ -29,4 +30,38 @@ test("defines the complete deterministic timeline for every ordered scene", () =
 test("gives every scene a unique motion and transition signature", () => {
   const signatures = sceneOrder.map((scene) => `${sceneTimelines[scene].motion}/${sceneTimelines[scene].transition}`);
   expect(new Set(signatures).size).toBe(sceneOrder.length);
+});
+
+test("binds non-signal timeline reveals to their content fragments", () => {
+  for (const scene of sceneOrder.filter((scene) => scene !== "signal")) {
+    const echoIds = new Set(sceneEchoes[scene].map((echo) => echo.id));
+    for (const reveal of sceneTimelines[scene].reveals) {
+      expect(echoIds.has(reveal.id)).toBe(true);
+    }
+  }
+});
+
+test("resolves signal semantic slots through every active channel", () => {
+  const slots = sceneTimelines.signal.reveals;
+  for (const channel of signalChannels) {
+    const resolvedIds = slots.slice(0, 3).map((slot) => {
+      const match = /^\$response:(\d+)$/.exec(slot.id);
+      expect(match).not.toBeNull();
+      return channel.echoes[Number(match![1])]?.id;
+    });
+    expect(resolvedIds).toEqual(["curious", "compliment", "ally"]);
+    expect(slots[3].id).toBe("close");
+    expect(channel.echoes.some((echo) => echo.id === slots[3].id)).toBe(true);
+  }
+});
+
+test("prevents runtime mutation of timeline records and nested reveal cues", () => {
+  const registry = sceneTimelines as unknown as { wake: { reveals: { id: string }[] } };
+  const originalId = sceneTimelines.wake.reveals[0].id;
+  try {
+    registry.wake.reveals[0].id = "mutated";
+  } catch {
+    // A frozen object may reject assignment in strict mode.
+  }
+  expect(sceneTimelines.wake.reveals[0].id).toBe(originalId);
 });

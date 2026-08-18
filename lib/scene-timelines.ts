@@ -1,16 +1,26 @@
 import type { SceneId } from "./experience";
 
 export type MotionCue = "attract" | "disrupt" | "lock" | "orbit" | "reply" | "tunnel" | "sync" | "infinity";
-export type SceneTimeline = {
+export type TransitionCue = "gravity-wave" | "orbit-repair" | "coordinate-beam" | "petal-bloom" | "echo-return" | "dual-stream" | "wave-merge" | "yu-seal";
+export type RevealCue = Readonly<{ at: number; id: string }>;
+export type SceneTimeline = Readonly<{
   enterMs: number;
   presentMs: number;
   exitMs: number;
   motion: MotionCue;
-  transition: string;
-  reveals: { at: number; id: string }[];
-};
+  transition: TransitionCue;
+  reveals: readonly RevealCue[];
+}>;
 
-export const sceneTimelines: Record<SceneId, SceneTimeline> = {
+function deepFreeze<T>(value: T): T {
+  if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const child of Object.values(value)) deepFreeze(child);
+  }
+  return value;
+}
+
+const timelineRegistry = {
   wake: {
     enterMs: 700,
     presentMs: 5400,
@@ -75,4 +85,6 @@ export const sceneTimelines: Record<SceneId, SceneTimeline> = {
     transition: "yu-seal",
     reveals: [{ at: 1200, id: "recap" }, { at: 3700, id: "present" }, { at: 6100, id: "echo" }],
   },
-};
+} as const satisfies Readonly<Record<SceneId, SceneTimeline>>;
+
+export const sceneTimelines: Readonly<Record<SceneId, SceneTimeline>> = deepFreeze(timelineRegistry);
