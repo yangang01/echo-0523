@@ -29,6 +29,31 @@ function timestamp() {
   return performance.now();
 }
 
+function usePausableTimeout(enabled: boolean, paused: boolean, duration: number, onElapsed: () => void) {
+  const remaining = useRef(duration);
+
+  useEffect(() => {
+    if (!enabled) {
+      remaining.current = duration;
+      return;
+    }
+    if (paused) return;
+
+    const delay = remaining.current;
+    const startedAt = timestamp();
+    let elapsed = false;
+    const timer = setTimeout(() => {
+      elapsed = true;
+      remaining.current = 0;
+      onElapsed();
+    }, delay);
+    return () => {
+      clearTimeout(timer);
+      if (!elapsed) remaining.current = Math.max(0, delay - Math.max(0, timestamp() - startedAt));
+    };
+  }, [duration, enabled, onElapsed, paused]);
+}
+
 function DirectedScene({ state, dispatch, hidden, onPhaseChange }: DirectedSceneProps) {
   const { scene } = state;
   const timeline = sceneTimelines[scene];
@@ -47,13 +72,11 @@ function DirectedScene({ state, dispatch, hidden, onPhaseChange }: DirectedScene
     sendDirector({ type: hidden ? "PAUSE" : "RESUME", reason: "hidden", now: timestamp() });
   }, [hidden]);
 
-  useEffect(() => {
-    if (director.phase !== "enter" || director.paused.length > 0) return;
-    const timer = setTimeout(() => {
-      sendDirector({ type: "START_PRESENTATION", now: timestamp() });
-    }, timeline.enterMs);
-    return () => clearTimeout(timer);
-  }, [director.paused.length, director.phase, timeline.enterMs]);
+  const startPresentation = useCallback(() => {
+    sendDirector({ type: "START_PRESENTATION", now: timestamp() });
+  }, []);
+  const directorPaused = director.paused.length > 0;
+  usePausableTimeout(director.phase === "enter", directorPaused, timeline.enterMs, startPresentation);
 
   useEffect(() => {
     if (!next || director.phase !== "ready" || director.autoAdvanceAt === null) return;
@@ -64,14 +87,10 @@ function DirectedScene({ state, dispatch, hidden, onPhaseChange }: DirectedScene
     return () => clearTimeout(timer);
   }, [director.autoAdvanceAt, director.phase, next]);
 
-  useEffect(() => {
-    if (!next || director.phase !== "exit" || director.paused.length > 0) return;
-    const from = scene;
-    const timer = setTimeout(() => {
-      dispatch({ type: "ADVANCE_TO", from, to: next });
-    }, timeline.exitMs);
-    return () => clearTimeout(timer);
-  }, [director.advanceToken, director.paused.length, director.phase, dispatch, next, scene, timeline.exitMs]);
+  const advanceScene = useCallback(() => {
+    if (next) dispatch({ type: "ADVANCE_TO", from: scene, to: next });
+  }, [dispatch, next, scene]);
+  usePausableTimeout(Boolean(next) && director.phase === "exit", directorPaused, timeline.exitMs, advanceScene);
 
   const complete = useCallback(() => {
     if (completed.current) return;
@@ -97,9 +116,9 @@ function DirectedScene({ state, dispatch, hidden, onPhaseChange }: DirectedScene
     sendDirector({ type: "REQUEST_ADVANCE", now });
   }, [next]);
 
-  const active = director.phase === "present" && director.paused.length === 0;
+  const active = director.phase === "present";
   const sceneView = (() => {
-    const props = { active, onComplete: complete, onReveal: reveal };
+    const props = { active, paused: directorPaused, onComplete: complete, onReveal: reveal };
     switch (scene) {
       case "wake": return <WakeScene {...props} />;
       case "jealousy": return <JealousyScene {...props} />;

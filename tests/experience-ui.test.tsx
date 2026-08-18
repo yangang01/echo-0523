@@ -120,7 +120,51 @@ test("the YU visual node survives a real scene transition", () => {
   expect(document.querySelector(".echo-canvas")).toBe(canvas);
 });
 
-test("visibility pauses an active reveal and resumes it from a fresh timing window", () => {
+test("an upward drag that starts on the transcript reviews copy but never advances", () => {
+  vi.useFakeTimers();
+  render(<EchoExperience />);
+  finishWakePresentation();
+  const status = screen.getByRole("status");
+
+  pointer(status, "pointerdown", { pointerId: 21, clientX: 190, clientY: 700 });
+  act(() => vi.advanceTimersByTime(120));
+  pointer(status, "pointerup", { pointerId: 21, clientX: 185, clientY: 540 });
+  act(() => vi.advanceTimersByTime(sceneTimelines.wake.exitMs));
+  expect(screen.getByText("01 / 08")).toBeInTheDocument();
+
+  swipeReadySurface();
+  act(() => vi.advanceTimersByTime(sceneTimelines.wake.exitMs));
+  expect(screen.getByText("02 / 08")).toBeInTheDocument();
+});
+
+test("visibility preserves the final millisecond of enter and exit choreography", () => {
+  vi.useFakeTimers();
+  render(<EchoExperience />);
+  const y = screen.getByRole("button", { name: "把 Y 靠近 U" });
+
+  act(() => vi.advanceTimersByTime(sceneTimelines.wake.enterMs - 1));
+  expect(y).toBeDisabled();
+  act(() => setVisibility("hidden"));
+  act(() => vi.advanceTimersByTime(20_000));
+  act(() => setVisibility("visible"));
+  expect(y).toBeDisabled();
+  act(() => vi.advanceTimersByTime(1));
+  expect(y).toBeEnabled();
+
+  attractOpeningCores();
+  act(() => vi.advanceTimersByTime(sceneTimelines.wake.presentMs));
+  swipeReadySurface();
+  act(() => vi.advanceTimersByTime(sceneTimelines.wake.exitMs - 1));
+  act(() => setVisibility("hidden"));
+  act(() => vi.advanceTimersByTime(20_000));
+  expect(screen.getByText("01 / 08")).toBeInTheDocument();
+  act(() => setVisibility("visible"));
+  expect(screen.getByText("01 / 08")).toBeInTheDocument();
+  act(() => vi.advanceTimersByTime(1));
+  expect(screen.getByText("02 / 08")).toBeInTheDocument();
+});
+
+test("visibility pauses an active reveal and resumes from the exact remaining millisecond", () => {
   vi.useFakeTimers();
   render(<EchoExperience />);
   act(() => vi.advanceTimersByTime(sceneTimelines.wake.enterMs));
@@ -131,8 +175,6 @@ test("visibility pauses an active reveal and resumes it from a fresh timing wind
   act(() => vi.advanceTimersByTime(30_000));
   expect(screen.getByRole("status")).toBeEmptyDOMElement();
   act(() => setVisibility("visible"));
-  act(() => vi.advanceTimersByTime(sceneTimelines.wake.reveals[0].at - 1));
-  expect(screen.getByRole("status")).toBeEmptyDOMElement();
   act(() => vi.advanceTimersByTime(1));
   expect(screen.getByRole("status")).toHaveTextContent("这片宇宙原本安静得没有方向");
 });

@@ -16,6 +16,7 @@ export function EchoTranscript({ fragments, unlocked, activeId, onSelect, onRead
   return (
     <div
       className={`echo-transcript${active ? "" : " echo-transcript-empty"}`}
+      data-gesture-ignore
       onFocusCapture={() => onReadingChange(true)}
       onBlurCapture={(event) => {
         const next = event.relatedTarget;

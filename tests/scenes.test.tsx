@@ -201,6 +201,29 @@ test("automatic scenes restart pending timers from zero after reactivation witho
   expect(onComplete).toHaveBeenCalledOnce();
 });
 
+test("automatic scenes preserve remaining cue and completion time across repeated suspension", () => {
+  vi.useFakeTimers();
+  const onComplete = vi.fn();
+  const onReveal = vi.fn();
+  const view = render(<GameScene onComplete={onComplete} onReveal={onReveal} />);
+
+  act(() => vi.advanceTimersByTime(sceneTimelines.game.reveals[0].at - 1));
+  view.rerender(<GameScene paused onComplete={onComplete} onReveal={onReveal} />);
+  act(() => vi.advanceTimersByTime(30_000));
+  expect(onReveal).not.toHaveBeenCalled();
+  view.rerender(<GameScene onComplete={onComplete} onReveal={onReveal} />);
+  act(() => vi.advanceTimersByTime(1));
+  expect(onReveal).toHaveBeenCalledWith("near");
+
+  act(() => vi.advanceTimersByTime(500));
+  view.rerender(<GameScene paused onComplete={onComplete} onReveal={onReveal} />);
+  act(() => vi.advanceTimersByTime(10_000));
+  view.rerender(<GameScene onComplete={onComplete} onReveal={onReveal} />);
+  act(() => vi.advanceTimersByTime(sceneTimelines.game.presentMs - sceneTimelines.game.reveals[0].at - 500));
+  expect(onReveal.mock.calls.map(([id]) => id)).toEqual(["near", "sync", "through", "complete"]);
+  expect(onComplete).toHaveBeenCalledOnce();
+});
+
 test("signal locks one selected channel then schedules channel-derived replies", () => {
   vi.useFakeTimers();
   const onResponse = vi.fn();
