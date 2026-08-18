@@ -31,6 +31,107 @@ function readIndentedBlock(source: string, heading: string, indentation: number)
     : remainingSource.slice(0, nextPeer);
 }
 
+type WorkflowStep = {
+  uses?: string;
+  run?: string;
+  with: Record<string, string>;
+  [property: string]: string | Record<string, string> | undefined;
+};
+
+function readDeploySteps(deployJob: string) {
+  const lines = deployJob.split("\n");
+  const stepsHeading = lines.indexOf("    steps:");
+  expect(stepsHeading, "deploy steps block exists").toBeGreaterThanOrEqual(0);
+
+  const steps: WorkflowStep[] = [];
+  let currentStep: WorkflowStep | undefined;
+  let readingWith = false;
+
+  for (const line of lines.slice(stepsHeading + 1)) {
+    const stepStart = line.match(/^ {6}- (uses|run): (.+)$/);
+    if (stepStart) {
+      const [, kind, value] = stepStart;
+      currentStep = { [kind]: value, with: {} };
+      steps.push(currentStep);
+      readingWith = false;
+      continue;
+    }
+
+    if (!currentStep) continue;
+
+    if (line === "        with:") {
+      readingWith = true;
+      continue;
+    }
+
+    const withProperty = line.match(/^ {10}([\w-]+): (.+)$/);
+    if (readingWith && withProperty) {
+      currentStep.with[withProperty[1]] = withProperty[2];
+      continue;
+    }
+
+    const stepProperty = line.match(/^ {8}([\w-]+): (.+)$/);
+    if (stepProperty) {
+      currentStep[stepProperty[1]] = stepProperty[2];
+      readingWith = false;
+    }
+  }
+
+  return steps;
+}
+
+function expectDeployJobContract(workflow: string) {
+  const jobs = readIndentedBlock(workflow, "jobs", 0);
+  const deployJob = readIndentedBlock(jobs, "deploy", 2);
+
+  expect(jobs).not.toMatch(/^ {2}(?!deploy:)\S[^\n]*:/m);
+  expect(deployJob).toMatch(/^ {4}runs-on: ubuntu-latest$/m);
+  expect(deployJob).toMatch(
+    /^ {4}environment:\n {6}name: github-pages\n {6}url: \$\{\{ steps\.deployment\.outputs\.page_url \}\}$/m,
+  );
+
+  const steps = readDeploySteps(deployJob);
+
+  expect(steps.map((step) => step.uses ?? `run: ${step.run}`)).toEqual([
+    "actions/checkout@v4",
+    "pnpm/action-setup@v4",
+    "actions/setup-node@v4",
+    "run: pnpm install --frozen-lockfile",
+    "run: pnpm exec vitest run",
+    "run: pnpm run build:pages",
+    "run: pnpm run verify:pages",
+    "actions/configure-pages@v5",
+    "actions/upload-pages-artifact@v3",
+    "actions/deploy-pages@v4",
+  ]);
+
+  const pnpmSetup = steps.find(
+    (step) => step.uses === "pnpm/action-setup@v4",
+  );
+  const nodeSetup = steps.find(
+    (step) => step.uses === "actions/setup-node@v4",
+  );
+  const artifactUpload = steps.find(
+    (step) => step.uses === "actions/upload-pages-artifact@v3",
+  );
+  const pagesDeployment = steps.find(
+    (step) => step.uses === "actions/deploy-pages@v4",
+  );
+  const artifactVerification = steps.find(
+    (step) => step.run === "pnpm run verify:pages",
+  );
+
+  expect(pnpmSetup?.with).toEqual({ version: "10" });
+  expect(nodeSetup?.with).toEqual({
+    "node-version": "22",
+    cache: "pnpm",
+  });
+  expect(artifactUpload?.with).toEqual({ path: "dist-github-pages" });
+  expect(pagesDeployment?.id).toBe("deployment");
+  expect(artifactVerification).not.toHaveProperty("if");
+  expect(artifactVerification).not.toHaveProperty("continue-on-error");
+}
+
 const temporaryBuilds: string[] = [];
 
 function createTemporaryBuild() {
@@ -98,37 +199,65 @@ describe("GitHub Pages static build", () => {
     const workflowPath = ".github/workflows/deploy-pages.yml";
     expect(existsSync(resolve(process.cwd(), workflowPath))).toBe(true);
     const workflow = readProjectFile(workflowPath);
-    const jobs = readIndentedBlock(workflow, "jobs", 0);
-    const deployJob = readIndentedBlock(jobs, "deploy", 2);
 
-    expect(jobs).not.toMatch(/^ {2}(?!deploy:)\S[^\n]*:/m);
-    expect(deployJob).toMatch(/^ {4}runs-on: ubuntu-latest$/m);
-    expect(deployJob).toMatch(
-      /^ {4}environment:\n {6}name: github-pages\n {6}url: \$\{\{ steps\.deployment\.outputs\.page_url \}\}$/m,
-    );
+    expectDeployJobContract(workflow);
+  });
 
-    const steps = Array.from(
-      deployJob.matchAll(/^ {6}- (uses|run): (.+)$/gm),
-      ([, kind, value]) => `${kind}: ${value}`,
-    );
+  it.each([
+    {
+      name: "pnpm version attached to setup-node",
+      mutate: (workflow: string) =>
+        workflow.replace(
+          "      - uses: pnpm/action-setup@v4\n        with:\n          version: 10\n      - uses: actions/setup-node@v4\n        with:\n",
+          "      - uses: pnpm/action-setup@v4\n      - uses: actions/setup-node@v4\n        with:\n          version: 10\n",
+        ),
+    },
+    {
+      name: "Node settings attached to pnpm setup",
+      mutate: (workflow: string) =>
+        workflow.replace(
+          "      - uses: pnpm/action-setup@v4\n        with:\n          version: 10\n      - uses: actions/setup-node@v4\n        with:\n          node-version: 22\n          cache: pnpm\n",
+          "      - uses: pnpm/action-setup@v4\n        with:\n          version: 10\n          node-version: 22\n          cache: pnpm\n      - uses: actions/setup-node@v4\n",
+        ),
+    },
+    {
+      name: "artifact path attached to deploy-pages",
+      mutate: (workflow: string) =>
+        workflow.replace(
+          "      - uses: actions/upload-pages-artifact@v3\n        with:\n          path: dist-github-pages\n      - uses: actions/deploy-pages@v4\n        id: deployment\n",
+          "      - uses: actions/upload-pages-artifact@v3\n      - uses: actions/deploy-pages@v4\n        with:\n          path: dist-github-pages\n        id: deployment\n",
+        ),
+    },
+    {
+      name: "deployment id attached to the upload step",
+      mutate: (workflow: string) =>
+        workflow.replace(
+          "          path: dist-github-pages\n      - uses: actions/deploy-pages@v4\n        id: deployment\n",
+          "          path: dist-github-pages\n        id: deployment\n      - uses: actions/deploy-pages@v4\n",
+        ),
+    },
+    {
+      name: "artifact verification explicitly skipped",
+      mutate: (workflow: string) =>
+        workflow.replace(
+          "      - run: pnpm run verify:pages\n",
+          "      - run: pnpm run verify:pages\n        if: false\n",
+        ),
+    },
+    {
+      name: "artifact verification allowed to fail",
+      mutate: (workflow: string) =>
+        workflow.replace(
+          "      - run: pnpm run verify:pages\n",
+          "      - run: pnpm run verify:pages\n        continue-on-error: true\n",
+        ),
+    },
+  ])("rejects $name", ({ mutate }) => {
+    const workflow = readProjectFile(".github/workflows/deploy-pages.yml");
+    const mutatedWorkflow = mutate(workflow);
 
-    expect(steps).toEqual([
-      "uses: actions/checkout@v4",
-      "uses: pnpm/action-setup@v4",
-      "uses: actions/setup-node@v4",
-      "run: pnpm install --frozen-lockfile",
-      "run: pnpm exec vitest run",
-      "run: pnpm run build:pages",
-      "run: pnpm run verify:pages",
-      "uses: actions/configure-pages@v5",
-      "uses: actions/upload-pages-artifact@v3",
-      "uses: actions/deploy-pages@v4",
-    ]);
-    expect(deployJob).toMatch(/^ {10}version: 10$/m);
-    expect(deployJob).toMatch(/^ {10}node-version: 22$/m);
-    expect(deployJob).toMatch(/^ {10}cache: pnpm$/m);
-    expect(deployJob).toMatch(/^ {10}path: dist-github-pages$/m);
-    expect(deployJob).toMatch(/^ {8}id: deployment$/m);
+    expect(mutatedWorkflow).not.toBe(workflow);
+    expect(() => expectDeployJobContract(mutatedWorkflow)).toThrow();
   });
 
   it("provides a localized HTML shell for the static React entry point", () => {
