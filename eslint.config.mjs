@@ -11,6 +11,7 @@ const eslintConfig = defineConfig([
   globalIgnores([
     ".next/**",
     "dist/**",
+    "dist-github-pages/**",
     "out/**",
     "build/**",
     "next-env.d.ts",
