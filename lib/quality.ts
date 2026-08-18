@@ -1,5 +1,19 @@
 export type Quality = "high" | "medium" | "low";
-export const particleBudget = { high: 32000, medium: 18000, low: 7000 } as const;
+export const qualityProfiles = {
+  high: { particles: 32000, bloomScale: 1, gravityCoreSegments: 3 },
+  medium: { particles: 18000, bloomScale: 0.72, gravityCoreSegments: 3 },
+  low: { particles: 7000, bloomScale: 0, gravityCoreSegments: 2 },
+} as const satisfies Readonly<Record<Quality, {
+  particles: number;
+  bloomScale: number;
+  gravityCoreSegments: number;
+}>>;
+
+export const particleBudget = {
+  high: qualityProfiles.high.particles,
+  medium: qualityProfiles.medium.particles,
+  low: qualityProfiles.low.particles,
+} as const;
 
 export function initialQuality(input: { deviceMemory?: number; cores?: number; reducedMotion: boolean }): Quality {
   if (input.reducedMotion || (input.deviceMemory ?? 4) <= 2 || (input.cores ?? 4) <= 2) return "low";
