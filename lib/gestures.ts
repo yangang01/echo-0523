@@ -3,19 +3,22 @@ export type Point = { x: number; y: number };
 export type TimedPoint = Point & { at: number };
 
 export function attractionProgress(point: Point, target: Point, radius: number) {
+  const normalizedRadius = Number.isFinite(radius) && radius > 0 ? radius : 0;
   const distance = Math.hypot(point.x - target.x, point.y - target.y);
-  const attracted = distance <= radius;
+  const attracted = distance <= normalizedRadius;
 
   if (attracted) return { progress: 1, attracted: true };
 
-  const forgivingDenominator = Math.max(radius * 2, 1);
+  const forgivingDenominator = Math.max(normalizedRadius * 2, 1);
   return {
-    progress: Math.max(0, 1 - (distance - radius) / forgivingDenominator),
+    progress: Math.max(0, 1 - (distance - normalizedRadius) / forgivingDenominator),
     attracted: false,
   };
 }
 
 export function classifySwipe(start: TimedPoint, end: TimedPoint): "up" | "none" {
+  if (!Number.isFinite(start.at) || !Number.isFinite(end.at) || end.at < start.at) return "none";
+
   const dx = end.x - start.x;
   const dy = end.y - start.y;
   const upwardDistance = -dy;

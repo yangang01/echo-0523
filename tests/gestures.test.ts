@@ -14,6 +14,11 @@ test("attraction guards a zero radius denominator", () => {
   expect(attractionProgress({ x: 1, y: 0 }, { x: 0, y: 0 }, 0)).toEqual({ progress: 0, attracted: false });
 });
 
+test("attraction normalizes negative and non-finite radii to a zero-radius target", () => {
+  expect(attractionProgress({ x: 0, y: 0 }, { x: 0, y: 0 }, -10)).toEqual({ progress: 1, attracted: true });
+  expect(attractionProgress({ x: 1, y: 0 }, { x: 0, y: 0 }, Number.POSITIVE_INFINITY)).toEqual({ progress: 0, attracted: false });
+});
+
 test("classifies a long upward swipe", () => {
   expect(classifySwipe({ x: 20, y: 160, at: 100 }, { x: 36, y: 80, at: 500 })).toBe("up");
 });
@@ -26,4 +31,10 @@ test("rejects horizontal, downward, and short slow gestures", () => {
   expect(classifySwipe({ x: 20, y: 100, at: 0 }, { x: 110, y: 80, at: 100 })).toBe("none");
   expect(classifySwipe({ x: 20, y: 80, at: 0 }, { x: 20, y: 150, at: 100 })).toBe("none");
   expect(classifySwipe({ x: 20, y: 100, at: 0 }, { x: 22, y: 65, at: 400 })).toBe("none");
+});
+
+test("rejects decreasing and non-finite swipe timestamps", () => {
+  expect(classifySwipe({ x: 20, y: 100, at: 100 }, { x: 20, y: 40, at: 20 })).toBe("none");
+  expect(classifySwipe({ x: 20, y: 100, at: Number.NaN }, { x: 20, y: 40, at: 20 })).toBe("none");
+  expect(classifySwipe({ x: 20, y: 100, at: 0 }, { x: 20, y: 40, at: Number.POSITIVE_INFINITY })).toBe("none");
 });
