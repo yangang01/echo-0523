@@ -1,7 +1,6 @@
-import { StrictMode, useState } from "react";
+import { StrictMode } from "react";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, test, vi } from "vitest";
-import { sceneTimelines } from "../lib/scene-timelines";
 import { signalChannels } from "../lib/content";
 import { ConfessionScene, FinaleScene, GameScene, JealousyScene, NightScene, PrivilegeScene, resolveSignalCue, SignalScene, WakeScene } from "../components/experience/scenes";
 
@@ -36,7 +35,7 @@ function pointer(target: Element, type: string, init: { pointerId: number; butto
   fireEvent(target, event);
 }
 
-test("wake attracts Y with its owner pointer and only then starts the cinematic timeline", () => {
+test("wake attracts Y with its owner pointer and immediately reveals only the first echo", () => {
   vi.useFakeTimers();
   const onComplete = vi.fn();
   const onReveal = vi.fn();
@@ -55,16 +54,11 @@ test("wake attracts Y with its owner pointer and only then starts the cinematic 
   pointer(y, "pointerup", { pointerId: 7 });
   expect(capture).toHaveBeenCalledWith(7);
   expect(release).toHaveBeenCalledWith(7);
-  expect(onComplete).not.toHaveBeenCalled();
-
-  act(() => vi.advanceTimersByTime(sceneTimelines.wake.reveals[0].at));
   expect(onReveal).toHaveBeenCalledWith("spark");
-  act(() => vi.advanceTimersByTime(sceneTimelines.wake.reveals[1].at - sceneTimelines.wake.reveals[0].at));
-  act(() => vi.advanceTimersByTime(sceneTimelines.wake.reveals[2].at - sceneTimelines.wake.reveals[1].at));
-  expect(onReveal.mock.calls.map(([id]) => id)).toEqual(["spark", "archive", "receiver"]);
   expect(onComplete).not.toHaveBeenCalled();
-  act(() => vi.advanceTimersByTime(sceneTimelines.wake.presentMs - sceneTimelines.wake.reveals[2].at));
-  expect(onComplete).toHaveBeenCalledOnce();
+  act(() => vi.advanceTimersByTime(120_000));
+  expect(onReveal.mock.calls.map(([id]) => id)).toEqual(["spark"]);
+  expect(onComplete).not.toHaveBeenCalled();
   expect(screen.getByText("拖动 Y，靠近 U")).toBeInTheDocument();
   expect(screen.queryByText(/长按 3 秒|继续触碰/)).not.toBeInTheDocument();
 });
@@ -97,15 +91,18 @@ test("wake cancels unclaimed gestures and timers without leaking completion", ()
   expect(onComplete).not.toHaveBeenCalled();
 });
 
-test("wake keyboard fallback begins the same timeline and context menus stay local", () => {
+test("wake keyboard fallback reveals the first echo without arming a timer", () => {
   vi.useFakeTimers();
   const onComplete = vi.fn();
-  render(<WakeScene onComplete={onComplete} onReveal={noop} />);
+  const onReveal = vi.fn();
+  render(<WakeScene onComplete={onComplete} onReveal={onReveal} />);
   const y = screen.getByRole("button", { name: "把 Y 靠近 U" });
   const root = document.querySelector(".gravity-intro")!;
   fireEvent.keyDown(y, { key: "Enter" });
-  act(() => vi.advanceTimersByTime(sceneTimelines.wake.presentMs));
-  expect(onComplete).toHaveBeenCalledOnce();
+  expect(onReveal).toHaveBeenCalledWith("spark");
+  act(() => vi.advanceTimersByTime(120_000));
+  expect(onReveal).toHaveBeenCalledOnce();
+  expect(onComplete).not.toHaveBeenCalled();
   expect(fireEvent.contextMenu(y)).toBe(false);
   expect(fireEvent.contextMenu(root)).toBe(true);
 });
@@ -123,26 +120,19 @@ test("wake clears pointer ownership even when capture release throws", () => {
   expect(() => pointer(y, "pointercancel", { pointerId: 1 })).not.toThrow();
   pointer(y, "pointerdown", { pointerId: 2 });
   pointer(y, "pointermove", { pointerId: 2, clientX: 128, clientY: 48 });
-  act(() => vi.advanceTimersByTime(sceneTimelines.wake.reveals[0].at));
   expect(onReveal).toHaveBeenCalledWith("spark");
 });
 
-test("jealousy decodes once then narrates three echoes at reading pace", () => {
+test("jealousy decodes once then immediately reveals only its first echo", () => {
   vi.useFakeTimers();
   const onComplete = vi.fn();
   const onReveal = vi.fn();
   render(<JealousyScene onComplete={onComplete} onReveal={onReveal} />);
   fireEvent.change(screen.getByRole("slider", { name: "滑动解码心跳" }), { target: { value: "100" } });
-  expect(onReveal).not.toHaveBeenCalled();
-  act(() => vi.advanceTimersByTime(1_200));
   expect(onReveal.mock.calls.map(([id]) => id)).toEqual(["praise"]);
-  act(() => vi.advanceTimersByTime(10_000));
-  expect(onReveal.mock.calls.map(([id]) => id)).toEqual(["praise", "smile"]);
-  act(() => vi.advanceTimersByTime(10_000));
-  expect(onReveal.mock.calls.map(([id]) => id)).toEqual(["praise", "smile", "meaning"]);
+  act(() => vi.advanceTimersByTime(120_000));
+  expect(onReveal.mock.calls.map(([id]) => id)).toEqual(["praise"]);
   expect(onComplete).not.toHaveBeenCalled();
-  act(() => vi.advanceTimersByTime(10_000));
-  expect(onComplete).toHaveBeenCalledOnce();
   expect(screen.queryByRole("button", { name: "发送解码脉冲" })).not.toBeInTheDocument();
 });
 
@@ -158,125 +148,64 @@ const automaticScenes = [
   ["night", NightScene, ["third", "two-thirds", "connected", "frequency"]],
 ] as const;
 
-test.each(automaticScenes)("%s automatically reveals ordered cues and completes once", (scene, Component, ids) => {
+test.each(automaticScenes)("%s reveals only its first cue and never advances on elapsed time", (scene, Component, ids) => {
   vi.useFakeTimers();
   const onComplete = vi.fn();
   const onReveal = vi.fn();
   const { unmount } = render(<Component onComplete={onComplete} onReveal={onReveal} />);
   expect(screen.queryAllByRole("button")).toHaveLength(0);
-  act(() => vi.advanceTimersByTime(sceneTimelines[scene].presentMs));
-  expect(onReveal.mock.calls.map(([id]) => id)).toEqual(ids);
-  expect(onComplete).toHaveBeenCalledOnce();
+  expect(onReveal.mock.calls.map(([id]) => id)).toEqual([ids[0]]);
+  act(() => vi.advanceTimersByTime(120_000));
+  expect(onReveal.mock.calls.map(([id]) => id)).toEqual([ids[0]]);
+  expect(onComplete).not.toHaveBeenCalled();
   unmount();
 });
 
-test.each(automaticScenes)("%s cleans automatic timers on inactive rerender and unmount", (scene, Component) => {
+test.each(automaticScenes)("%s waits while inactive and reveals once when activated", (_scene, Component) => {
   vi.useFakeTimers();
   const onComplete = vi.fn();
   const onReveal = vi.fn();
-  const { rerender, unmount } = render(<Component onComplete={onComplete} onReveal={onReveal} />);
-  rerender(<Component active={false} onComplete={onComplete} onReveal={onReveal} />);
-  unmount();
-  act(() => vi.advanceTimersByTime(sceneTimelines[scene].presentMs + 1));
+  const { rerender } = render(<Component active={false} onComplete={onComplete} onReveal={onReveal} />);
   expect(onReveal).not.toHaveBeenCalled();
+  rerender(<Component onComplete={onComplete} onReveal={onReveal} />);
+  expect(onReveal).toHaveBeenCalledOnce();
+  act(() => vi.advanceTimersByTime(120_000));
+  expect(onReveal).toHaveBeenCalledOnce();
   expect(onComplete).not.toHaveBeenCalled();
 });
 
-test("automatic scenes do not duplicate timers in StrictMode", () => {
+test("manual scenes do not duplicate their first reveal in StrictMode", () => {
   vi.useFakeTimers();
   const onComplete = vi.fn();
   const onReveal = vi.fn();
   render(<StrictMode><GameScene onComplete={onComplete} onReveal={onReveal} /></StrictMode>);
-  act(() => vi.advanceTimersByTime(sceneTimelines.game.presentMs));
-  expect(onReveal.mock.calls.map(([id]) => id)).toEqual(["near", "sync", "through", "complete"]);
-  expect(onComplete).toHaveBeenCalledOnce();
-});
-
-test("automatic scenes restart pending timers from zero after reactivation without duplicate callbacks", () => {
-  vi.useFakeTimers();
-  const onComplete = vi.fn();
-  const onReveal = vi.fn();
-  const { rerender } = render(<GameScene onComplete={onComplete} onReveal={onReveal} />);
-  act(() => vi.advanceTimersByTime(sceneTimelines.game.reveals[0].at));
-  rerender(<GameScene active={false} onComplete={onComplete} onReveal={onReveal} />);
-  act(() => vi.advanceTimersByTime(sceneTimelines.game.presentMs));
   expect(onReveal.mock.calls.map(([id]) => id)).toEqual(["near"]);
-  rerender(<GameScene onComplete={onComplete} onReveal={onReveal} />);
-  act(() => vi.advanceTimersByTime(sceneTimelines.game.reveals[1].at - 1));
-  expect(onReveal.mock.calls.map(([id]) => id)).toEqual(["near"]);
-  act(() => vi.advanceTimersByTime(1));
-  expect(onReveal.mock.calls.map(([id]) => id)).toEqual(["near", "sync"]);
-  act(() => vi.advanceTimersByTime(sceneTimelines.game.presentMs - sceneTimelines.game.reveals[1].at));
-  expect(onComplete).toHaveBeenCalledOnce();
+  expect(onComplete).not.toHaveBeenCalled();
 });
 
-test("automatic scenes preserve remaining cue and completion time across repeated suspension", () => {
+test("signal locks one selected channel, reveals its first reply, and never advances by time", () => {
   vi.useFakeTimers();
-  const onComplete = vi.fn();
-  const onReveal = vi.fn();
-  const view = render(<GameScene onComplete={onComplete} onReveal={onReveal} />);
-
-  act(() => vi.advanceTimersByTime(sceneTimelines.game.reveals[0].at - 1));
-  view.rerender(<GameScene paused onComplete={onComplete} onReveal={onReveal} />);
-  act(() => vi.advanceTimersByTime(30_000));
-  expect(onReveal).not.toHaveBeenCalled();
-  view.rerender(<GameScene onComplete={onComplete} onReveal={onReveal} />);
-  act(() => vi.advanceTimersByTime(1));
-  expect(onReveal).toHaveBeenCalledWith("near");
-
-  act(() => vi.advanceTimersByTime(500));
-  view.rerender(<GameScene paused onComplete={onComplete} onReveal={onReveal} />);
-  act(() => vi.advanceTimersByTime(10_000));
-  view.rerender(<GameScene onComplete={onComplete} onReveal={onReveal} />);
-  act(() => vi.advanceTimersByTime(sceneTimelines.game.presentMs - sceneTimelines.game.reveals[0].at - 500));
-  expect(onReveal.mock.calls.map(([id]) => id)).toEqual(["near", "sync", "through", "complete"]);
-  expect(onComplete).toHaveBeenCalledOnce();
-});
-
-test("signal locks one selected channel then schedules channel-derived replies", () => {
-  vi.useFakeTimers();
-  const onResponse = vi.fn();
   const onReveal = vi.fn();
   const onChannelSelected = vi.fn();
   const onComplete = vi.fn();
-  const onAdvance = vi.fn();
-  render(<SignalScene onResponse={onResponse} onComplete={onComplete} onReveal={onReveal} onChannelSelected={onChannelSelected} onAdvance={onAdvance} />);
+  const view = render(<SignalScene activeId={null} onComplete={onComplete} onReveal={onReveal} onChannelSelected={onChannelSelected} />);
   expect(screen.getAllByRole("button")).toHaveLength(4);
   fireEvent.click(screen.getByRole("button", { name: "想吐槽一下" }));
   expect(onChannelSelected).toHaveBeenCalledOnce();
   expect(onChannelSelected).toHaveBeenCalledWith("rant");
   expect(screen.getByText("频道已接通 · 想吐槽一下")).toBeInTheDocument();
   const responses = signalChannels.find((channel) => channel.id === "rant")!.responses;
+  view.rerender(<SignalScene activeId="curious" onComplete={onComplete} onReveal={onReveal} onChannelSelected={onChannelSelected} />);
   expect(screen.getByText(responses[0].text)).toBeInTheDocument();
-  expect(onResponse).toHaveBeenCalledOnce();
   expect(onReveal).toHaveBeenCalledOnce();
-  const advance = screen.getByRole("button", { name: "进入下一幕" });
-  fireEvent.click(advance);
-  fireEvent.click(advance);
-  expect(onAdvance).toHaveBeenCalledOnce();
-  act(() => vi.advanceTimersByTime(1_200));
+  expect(screen.queryByRole("button", { name: "进入下一幕" })).not.toBeInTheDocument();
+  act(() => vi.advanceTimersByTime(120_000));
   expect(screen.getByText(responses[0].text)).toBeInTheDocument();
-  expect(onResponse).toHaveBeenCalledOnce();
   expect(onReveal).toHaveBeenCalledOnce();
   expect(document.querySelector(".response-live")).toHaveTextContent(responses[0].text);
   expect(screen.getByRole("status")).toHaveTextContent(responses[0].text);
-  expect(screen.queryByText(responses[1].text)).not.toBeInTheDocument();
-  act(() => vi.advanceTimersByTime(10_000));
-  expect(screen.getByText(responses[1].text)).toBeInTheDocument();
-  expect(document.querySelector(".response-live")).toHaveTextContent(responses[1].text);
-  expect(screen.getByRole("status")).toHaveTextContent(responses[1].text);
-  expect(screen.queryByText(responses[2].text)).not.toBeInTheDocument();
-  act(() => vi.advanceTimersByTime(10_000));
-  expect(screen.getByText(responses[2].text)).toBeInTheDocument();
-  expect(document.querySelector(".response-live")).toHaveTextContent(responses[2].text);
-  expect(screen.getByRole("status")).toHaveTextContent(responses[2].text);
-  expect(onResponse.mock.calls.map(([type]) => type)).toEqual(["curious", "compliment", "ally"]);
-  expect(onReveal.mock.calls.map(([id]) => id)).toEqual(["curious", "compliment", "ally"]);
-  act(() => vi.advanceTimersByTime(10_000));
-  expect(onReveal.mock.calls.map(([id]) => id)).toEqual(["curious", "compliment", "ally", "close"]);
+  expect(onReveal.mock.calls.map(([id]) => id)).toEqual(["curious"]);
   expect(onComplete).not.toHaveBeenCalled();
-  act(() => vi.advanceTimersByTime(10_000));
-  expect(onComplete).toHaveBeenCalledOnce();
 });
 
 test("signal cue resolver ignores malformed response slots", () => {
@@ -288,20 +217,19 @@ test("signal cue resolver ignores malformed response slots", () => {
 
 test("signal cleans timers and disables choice controls while inactive", () => {
   vi.useFakeTimers();
-  const onResponse = vi.fn();
-  const props = { onResponse, onComplete: vi.fn(), onReveal: vi.fn(), onChannelSelected: vi.fn(), onAdvance: vi.fn() };
+  const props = { activeId: null, onComplete: vi.fn(), onReveal: vi.fn(), onChannelSelected: vi.fn() };
   const { rerender } = render(<SignalScene {...props} active={false} />);
   expect(screen.getAllByRole("button")).toHaveLength(4);
   for (const button of screen.getAllByRole("button")) expect(button).toBeDisabled();
   rerender(<SignalScene {...props} />);
   fireEvent.click(screen.getByRole("button", { name: "发生了小事" }));
-  expect(onResponse).toHaveBeenCalledOnce();
+  expect(props.onReveal).toHaveBeenCalledOnce();
   rerender(<SignalScene {...props} active={false} />);
-  act(() => vi.advanceTimersByTime(sceneTimelines.signal.presentMs));
-  expect(onResponse).toHaveBeenCalledOnce();
+  act(() => vi.advanceTimersByTime(120_000));
+  expect(props.onReveal).toHaveBeenCalledOnce();
 });
 
-test("finale keeps its relationship clock running from entry until unmount", () => {
+test("finale reveals only its first recap while its relationship clock keeps running", () => {
   vi.useFakeTimers();
   const onComplete = vi.fn();
   const onReveal = vi.fn();
@@ -313,15 +241,10 @@ test("finale keeps its relationship clock running from entry until unmount", () 
   expect(screen.queryByRole("button", { name: "读取回音 1 / 3" })).not.toBeInTheDocument();
   act(() => vi.advanceTimersByTime(1000));
   expect(clock.textContent).not.toBe(beforeEcho);
-  act(() => vi.advanceTimersByTime(sceneTimelines.finale.reveals[2].at - 1001));
+  act(() => vi.advanceTimersByTime(120_000));
+  expect(onReveal.mock.calls.map(([id]) => id)).toEqual(["recap"]);
   expect(screen.queryByRole("button", { name: "重新进入这片宇宙" })).not.toBeInTheDocument();
-  act(() => vi.advanceTimersByTime(1));
-  expect(document.querySelector(".final-line")).toHaveTextContent("你说的有的没的，在我这里都不是小事。");
-  expect(screen.getByRole("button", { name: "重新进入这片宇宙" })).toBeInTheDocument();
   expect(onComplete).not.toHaveBeenCalled();
-  act(() => vi.advanceTimersByTime(sceneTimelines.finale.presentMs - sceneTimelines.finale.reveals[2].at));
-  expect(onReveal.mock.calls.map(([id]) => id)).toEqual(["recap", "present", "echo"]);
-  expect(onComplete).toHaveBeenCalledOnce();
   rerender(<FinaleScene active={false} onComplete={onComplete} onReveal={onReveal} onRestart={noop} />);
   const afterPresentation = clock.textContent;
   act(() => vi.advanceTimersByTime(1000));
@@ -330,28 +253,15 @@ test("finale keeps its relationship clock running from entry until unmount", () 
   expect(vi.getTimerCount()).toBe(0);
 });
 
-test("finale cleans its automatic recap and clock timers when inactive", () => {
+test("finale waits to reveal while inactive and cleans its clock on unmount", () => {
   vi.useFakeTimers();
   const onComplete = vi.fn();
   const onReveal = vi.fn();
-  const { rerender, unmount } = render(<FinaleScene onComplete={onComplete} onReveal={onReveal} onRestart={noop} />);
-  rerender(<FinaleScene active={false} onComplete={onComplete} onReveal={onReveal} onRestart={noop} />);
-  unmount();
-  act(() => vi.advanceTimersByTime(sceneTimelines.finale.presentMs + 1));
+  const { rerender, unmount } = render(<FinaleScene active={false} onComplete={onComplete} onReveal={onReveal} onRestart={noop} />);
   expect(onReveal).not.toHaveBeenCalled();
+  rerender(<FinaleScene onComplete={onComplete} onReveal={onReveal} onRestart={noop} />);
+  expect(onReveal).toHaveBeenCalledWith("recap");
+  unmount();
+  expect(vi.getTimerCount()).toBe(0);
   expect(onComplete).not.toHaveBeenCalled();
-});
-
-test("automatic wake completion does not update its parent during render", () => {
-  vi.useFakeTimers();
-  const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
-  function Parent() {
-    const [done, setDone] = useState(false);
-    return done ? <p>完成</p> : <WakeScene onComplete={() => setDone(true)} onReveal={noop} />;
-  }
-  render(<Parent />);
-  fireEvent.keyDown(screen.getByRole("button", { name: "把 Y 靠近 U" }), { key: " " });
-  act(() => vi.advanceTimersByTime(sceneTimelines.wake.presentMs));
-  expect(screen.getByText("完成")).toBeInTheDocument();
-  expect(error).not.toHaveBeenCalled();
 });

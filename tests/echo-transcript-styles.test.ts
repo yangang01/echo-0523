@@ -57,6 +57,7 @@ test("renders the transcript as a compact cinematic glass panel", () => {
   expect(transcript).toMatch(/backdrop-filter:\s*blur\(18px\)/);
   expect(transcript).toMatch(/background:\s*linear-gradient/);
   expect(transcript).toMatch(/overflow:\s*hidden/);
+  expectDeclaration(transcript, "touch-action", /pan-y/);
   expect(transcript).not.toMatch(/overflow(?:-y)?:\s*(?:auto|scroll)/);
 });
 
@@ -191,21 +192,18 @@ test("only the opening gravity control suppresses selection and touch callouts",
   }
 });
 
-test("removes obsolete continue controls and renders a safe-area swipe cue", () => {
+test("renders a keyboard-visible, mobile-safe manual advance control", () => {
   expect(css).not.toMatch(/\.next-scene(?:\s|\{|:|\.)/);
   const cue = ruleFor(".swipe-cue");
   expectDeclaration(cue, "position", /fixed/);
   expectDeclaration(cue, "bottom", /calc\([^;]*env\(safe-area-inset-bottom\)/);
-  expectDeclaration(cue, "pointer-events", /none/);
+  expectDeclaration(cue, "pointer-events", /auto/);
+  expectDeclaration(cue, "min-height", /44px/);
+  expectDeclaration(cue, "cursor", /pointer/);
   expectDeclaration(cue, "animation", /swipe-breathe/);
-});
-
-test("gives the fifth-scene advance button a mobile-safe hit target and visible focus ring", () => {
-  const advance = ruleFor(".signal-advance");
-  expectDeclaration(advance, "min-height", /44px/);
-  expectDeclaration(advance, "grid-column", /1\s*\/\s*-1/);
-  expectDeclaration(ruleFor(".signal-advance:focus-visible"), "outline", /2px\s+solid/);
-  expect(mediaFor("max-height:680px")).not.toMatch(/\.signal-advance\s*\{[^}]*min-height:\s*(?:[0-3]?\d|4[0-3])px/);
+  expectDeclaration(ruleFor(".swipe-cue:focus-visible"), "outline", /2px\s+solid/);
+  expectDeclaration(ruleFor(".swipe-cue", mediaFor("max-height:680px")), "min-height", /44px/);
+  expect(css).not.toMatch(/\.signal-advance(?:\s|\{|:|\.)/);
 });
 
 test("gives all eight scenes distinct cinematic variables and semantic overlays", () => {

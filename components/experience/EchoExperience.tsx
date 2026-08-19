@@ -102,15 +102,6 @@ function DirectedScene({ state, dispatch, hidden, controlFocused, controlInterac
   const directorPaused = director.paused.length > 0;
   usePausableTimeout(director.phase === "enter", directorPaused, timeline.enterMs, startPresentation);
 
-  useEffect(() => {
-    if (!next || director.phase !== "ready" || director.autoAdvanceAt === null) return;
-    const delay = Math.max(0, director.autoAdvanceAt - timestamp());
-    const timer = setTimeout(() => {
-      sendDirector({ type: "IDLE_EXPIRED", now: timestamp() });
-    }, delay);
-    return () => clearTimeout(timer);
-  }, [director.autoAdvanceAt, director.phase, next]);
-
   const advanceScene = useCallback(() => {
     if (next) dispatch({ type: "ADVANCE_TO", from: scene, to: next });
   }, [dispatch, next, scene]);
@@ -124,7 +115,10 @@ function DirectedScene({ state, dispatch, hidden, controlFocused, controlInterac
   }, [dispatch, scene]);
   const reveal = useCallback((fragmentId: string) => {
     dispatch({ type: "ECHO_REVEAL", scene, fragmentId });
-  }, [dispatch, scene]);
+    if (scene === "signal" && (fragmentId === "curious" || fragmentId === "compliment" || fragmentId === "ally") && !transcript.unlocked.includes(fragmentId)) {
+      dispatch({ type: "RESPONSE_SELECTED", response: fragmentId });
+    }
+  }, [dispatch, scene, transcript.unlocked]);
   const selectEcho = useCallback((fragmentId: string) => {
     dispatch({ type: "ECHO_SELECT", scene, fragmentId });
   }, [dispatch, scene]);
@@ -141,11 +135,6 @@ function DirectedScene({ state, dispatch, hidden, controlFocused, controlInterac
     sendDirector({ type: "RESUME", reason: "surface-focus", now });
     sendDirector({ type: "REQUEST_ADVANCE", now });
   }, [next]);
-  const advanceSignal = useCallback(() => {
-    complete();
-    requestAdvance();
-  }, [complete, requestAdvance]);
-
   const active = director.phase === "present";
   const sceneView = (() => {
     const props = { active, paused: directorPaused, onComplete: complete, onReveal: reveal };
@@ -154,10 +143,10 @@ function DirectedScene({ state, dispatch, hidden, controlFocused, controlInterac
       case "jealousy": return <JealousyScene {...props} />;
       case "confession": return <ConfessionScene {...props} />;
       case "privilege": return <PrivilegeScene {...props} />;
-      case "signal": return <SignalScene {...props} onResponse={(response) => dispatch({ type: "RESPONSE_SELECTED", response })} onChannelSelected={(channelId) => dispatch({ type: "SIGNAL_CHANNEL_SET", channelId })} onAdvance={advanceSignal} />;
+      case "signal": return <SignalScene {...props} activeId={transcript.activeId} onChannelSelected={(channelId) => dispatch({ type: "SIGNAL_CHANNEL_SET", channelId })} />;
       case "game": return <GameScene {...props} />;
       case "night": return <NightScene {...props} />;
-      case "finale": return <FinaleScene {...props} onRestart={() => dispatch({ type: "RESTART" })} />;
+      case "finale": return <FinaleScene {...props} finalRevealed={transcript.unlocked.includes("echo")} onRestart={() => dispatch({ type: "RESTART" })} />;
     }
   })();
 
@@ -170,12 +159,14 @@ function DirectedScene({ state, dispatch, hidden, controlFocused, controlInterac
           unlocked={transcript.unlocked}
           activeId={transcript.activeId}
           onSelect={selectEcho}
+          onReveal={reveal}
+          onComplete={complete}
           onReadingChange={reading}
         >
           {sceneView}
         </ScenePanel>
       </div>
-      {director.phase === "ready" && next ? <div className="swipe-cue" aria-hidden="true">向上划过星轨</div> : null}
+      {director.phase === "ready" && next ? <button type="button" className="swipe-cue" onClick={requestAdvance}>上划进入下一幕</button> : null}
     </GestureSurface>
   );
 }
@@ -225,7 +216,7 @@ export function EchoExperience() {
   const autoUnlockKeyboard = useCallback((event: ReactKeyboardEvent<HTMLElement>) => {
     if (event.repeat || event.metaKey || event.ctrlKey || event.altKey) return;
     if (event.target instanceof Element && event.target.closest(".sound-button")) return;
-    if (!["Enter", " ", "ArrowUp", "ArrowRight", "ArrowDown", "PageDown"].includes(event.key)) return;
+    if (!["Enter", " ", "ArrowUp", "ArrowLeft", "ArrowRight", "ArrowDown", "PageDown"].includes(event.key)) return;
     requestSound(true);
   }, [requestSound]);
 

@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { finalCopy, signalChannels, type SignalChannel, type SignalChannelId } from "../../lib/content";
-import type { ResponseType } from "../../lib/experience";
 import { attractionProgress } from "../../lib/gestures";
 import { elapsedSinceConfession } from "../../lib/relationship-time";
 import { sceneTimelines, type RevealCue } from "../../lib/scene-timelines";
@@ -20,69 +19,19 @@ function useRevealOnce(onReveal: (fragmentId: string) => void) {
   }, []);
 }
 
-/** Schedules a scene's immutable timeline without coupling it to render churn. */
-export function useAutomaticScene(
-  cues: readonly RevealCue[],
-  totalMs: number,
-  onReveal: (fragmentId: string) => void,
-  onComplete: () => void,
-  enabled = true,
-  paused = false,
-) {
-  const revealRef = useRef(onReveal);
-  const completeRef = useRef(onComplete);
-  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
-  const completed = useRef(false);
-  const elapsed = useRef(0);
-  const fired = useRef(new Set<string>());
-  useEffect(() => { revealRef.current = onReveal; }, [onReveal]);
-  useEffect(() => { completeRef.current = onComplete; }, [onComplete]);
-
+function useFirstReveal(fragmentId: string, onReveal: (fragmentId: string) => void, enabled: boolean) {
+  const revealOnce = useRevealOnce(onReveal);
   useEffect(() => {
-    if (!enabled) {
-      elapsed.current = 0;
-      return;
-    }
-    if (paused || completed.current) return;
-    const segmentElapsed = elapsed.current;
-    const segmentStartedAt = performance.now();
-    let segmentCompleted = false;
-    const clear = () => {
-      timers.current.forEach(clearTimeout);
-      timers.current = [];
-    };
-    cues.forEach((cue, index) => {
-      const key = `${index}:${cue.at}:${cue.id}`;
-      if (fired.current.has(key)) return;
-      timers.current.push(setTimeout(() => {
-        if (fired.current.has(key)) return;
-        fired.current.add(key);
-        revealRef.current(cue.id);
-      }, Math.max(0, cue.at - segmentElapsed)));
-    });
-    timers.current.push(setTimeout(() => {
-      if (completed.current) return;
-      completed.current = true;
-      segmentCompleted = true;
-      elapsed.current = totalMs;
-      completeRef.current();
-    }, Math.max(0, totalMs - segmentElapsed)));
-    return () => {
-      clear();
-      if (!segmentCompleted) {
-        elapsed.current = Math.min(totalMs, segmentElapsed + Math.max(0, performance.now() - segmentStartedAt));
-      }
-    };
-  }, [cues, enabled, paused, totalMs]);
+    if (enabled) revealOnce(fragmentId);
+  }, [enabled, fragmentId, revealOnce]);
 }
 
-export function WakeScene({ onComplete, onReveal, active = true, paused = false }: BasicProps) {
+export function WakeScene({ onReveal, active = true, paused = false }: BasicProps) {
   const root = useRef<HTMLDivElement>(null);
   const ownerPointer = useRef<number | null>(null);
   const attractedRef = useRef(false);
   const [progress, setProgress] = useState(0);
   const [attracted, setAttracted] = useState(false);
-  const revealOnce = useRevealOnce(onReveal);
 
   const releaseOwner = useCallback((reset = false, updateState = true) => {
     const pointerId = ownerPointer.current;
@@ -111,7 +60,7 @@ export function WakeScene({ onComplete, onReveal, active = true, paused = false 
 
   useEffect(() => { if (!active || paused) releaseOwner(true); }, [active, paused, releaseOwner]);
 
-  useAutomaticScene(sceneTimelines.wake.reveals, sceneTimelines.wake.presentMs, revealOnce, onComplete, active && attracted, paused);
+  useFirstReveal(sceneTimelines.wake.reveals[0].id, onReveal, active && attracted && !paused);
 
   const startAttraction = useCallback(() => {
     if (!active || paused || attractedRef.current) return;
@@ -160,30 +109,20 @@ export function WakeScene({ onComplete, onReveal, active = true, paused = false 
   </div>;
 }
 
-export function JealousyScene({ onComplete, onReveal, active = true, paused = false }: BasicProps) {
+export function JealousyScene({ onReveal, active = true, paused = false }: BasicProps) {
   const [value, setValue] = useState(12);
-  const revealOnce = useRevealOnce(onReveal);
   const done = value >= 92;
-  useAutomaticScene(
-    sceneTimelines.jealousy.reveals,
-    sceneTimelines.jealousy.presentMs,
-    revealOnce,
-    onComplete,
-    active && done,
-    paused,
-  );
+  useFirstReveal(sceneTimelines.jealousy.reveals[0].id, onReveal, active && done && !paused);
   return <div className="signal-scrub"><div className="waveform" style={{ "--clarity": `${value}%` } as CSSProperties}><span>{done ? "在意" : "心跳失序"}</span></div><label>向右解码<input aria-label="滑动解码心跳" type="range" min="0" max="100" value={value} disabled={!active || paused} onChange={(event) => { if (active && !paused) setValue(Number(event.target.value)); }} /></label></div>;
 }
 
-export function ConfessionScene({ onComplete, onReveal, active = true, paused = false }: BasicProps) {
-  const revealOnce = useRevealOnce(onReveal);
-  useAutomaticScene(sceneTimelines.confession.reveals, sceneTimelines.confession.presentMs, revealOnce, onComplete, active, paused);
+export function ConfessionScene({ onReveal, active = true, paused = false }: BasicProps) {
+  useFirstReveal(sceneTimelines.confession.reveals[0].id, onReveal, active && !paused);
   return <div className="coordinate-lock-auto" role="img" aria-label="2026·05·23 正在自动锁定"><span>2026 · 05 · 23</span><p role="status">LOVE COORDINATE LOCKING</p></div>;
 }
 
-export function PrivilegeScene({ onComplete, onReveal, active = true, paused = false }: BasicProps) {
-  const revealOnce = useRevealOnce(onReveal);
-  useAutomaticScene(sceneTimelines.privilege.reveals, sceneTimelines.privilege.presentMs, revealOnce, onComplete, active, paused);
+export function PrivilegeScene({ onReveal, active = true, paused = false }: BasicProps) {
+  useFirstReveal(sceneTimelines.privilege.reveals[0].id, onReveal, active && !paused);
   return <div className="privilege-bloom" role="status" aria-label="偏爱轨道正在点亮"><span aria-hidden="true">{"✦\u3000✧\u3000✦"}</span><strong>偏爱轨道正在点亮</strong></div>;
 }
 
@@ -194,74 +133,42 @@ export function resolveSignalCue(cue: RevealCue, channel: SignalChannel): Reveal
   return { ...cue, id: channel.responses[responseIndex].type };
 }
 
-export function SignalScene({ onResponse, onComplete, onReveal, onChannelSelected, onAdvance, active = true, paused = false }: BasicProps & { onResponse: (type: ResponseType) => void; onChannelSelected: (channelId: SignalChannelId) => void; onAdvance: () => void }) {
+export function SignalScene({ onReveal, onChannelSelected, activeId, active = true, paused = false }: BasicProps & { onChannelSelected: (channelId: SignalChannelId) => void; activeId: string | null }) {
   const [channelId, setChannelId] = useState<SignalChannelId | null>(null);
-  const [heard, setHeard] = useState<ResponseType[]>([]);
   const selected = useRef(false);
-  const advanced = useRef(false);
-  const responded = useRef(new Set<ResponseType>());
   const revealOnce = useRevealOnce(onReveal);
   const channel = useMemo(() => signalChannels.find((item) => item.id === channelId), [channelId]);
-  const cues = useMemo<readonly RevealCue[]>(() => {
-    if (!channel) return sceneTimelines.signal.reveals;
-    return sceneTimelines.signal.reveals.flatMap((cue) => {
-      const resolved = resolveSignalCue(cue, channel);
-      return resolved ? [resolved] : [];
-    });
-  }, [channel]);
-  const handleCue = useCallback((id: string) => {
-    if (id === "curious" || id === "compliment" || id === "ally") {
-      if (responded.current.has(id)) return;
-      responded.current.add(id);
-      onResponse(id);
-      setHeard((current) => current.includes(id) ? current : [...current, id]);
-    }
-    revealOnce(id);
-  }, [onResponse, revealOnce]);
-  useAutomaticScene(cues, sceneTimelines.signal.presentMs, handleCue, onComplete, active && channelId !== null, paused);
 
   if (!channel) return <div className="channel-grid">{signalChannels.map((item) => <button key={item.id} disabled={!active || paused} onClick={() => {
     if (!active || paused || selected.current) return;
     selected.current = true;
     onChannelSelected(item.id);
     const firstCue = resolveSignalCue(sceneTimelines.signal.reveals[0], item);
-    if (firstCue) handleCue(firstCue.id);
+    if (firstCue) revealOnce(firstCue.id);
     setChannelId(item.id);
   }} aria-label={item.label}><i>{item.icon}</i><span>{item.label}</span></button>)}</div>;
 
-  const latest = channel.responses.findLast((item) => heard.includes(item.type));
-  return <div className="response-console"><p className="selected-channel">频道已接通 · {channel.label}</p><div className="response-live" role="status" aria-live="polite">{latest ? <><b>{latest.label}</b><span>{latest.text}</span></> : null}</div><button type="button" className="signal-advance" disabled={!active || paused} onClick={() => {
-    if (advanced.current) return;
-    advanced.current = true;
-    onAdvance();
-  }}>进入下一幕</button></div>;
+  const latest = channel.responses.find((item) => item.type === activeId);
+  return <div className="response-console"><p className="selected-channel">频道已接通 · {channel.label}</p><div className="response-live" role="status" aria-live="polite">{latest ? <><b>{latest.label}</b><span>{latest.text}</span></> : null}</div></div>;
 }
 
-export function GameScene({ onComplete, onReveal, active = true, paused = false }: BasicProps) {
-  const revealOnce = useRevealOnce(onReveal);
-  useAutomaticScene(sceneTimelines.game.reveals, sceneTimelines.game.presentMs, revealOnce, onComplete, active, paused);
+export function GameScene({ onReveal, active = true, paused = false }: BasicProps) {
+  useFirstReveal(sceneTimelines.game.reveals[0].id, onReveal, active && !paused);
   return <div className="dual-stream-gates" role="status" aria-label="双人副本的三道关卡正在自动开启"><div className="light-track"><i /><i /><span /></div><span>靠近</span><span>同步</span><span>穿越</span></div>;
 }
 
-export function NightScene({ onComplete, onReveal, active = true, paused = false }: BasicProps) {
-  const revealOnce = useRevealOnce(onReveal);
-  useAutomaticScene(sceneTimelines.night.reveals, sceneTimelines.night.presentMs, revealOnce, onComplete, active, paused);
+export function NightScene({ onReveal, active = true, paused = false }: BasicProps) {
+  useFirstReveal(sceneTimelines.night.reveals[0].id, onReveal, active && !paused);
   return <div className="frequency-link-auto" role="img" aria-label="Y 与 U 的深夜频率正在自动同频"><span className="frequency-line" /><b>我们正在同频</b></div>;
 }
 
-export function FinaleScene({ onComplete, onReveal, onRestart, active = true, paused = false }: BasicProps & { onRestart: () => void }) {
+export function FinaleScene({ onReveal, onRestart, active = true, paused = false, finalRevealed = false }: BasicProps & { onRestart: () => void; finalRevealed?: boolean }) {
   const [now, setNow] = useState(() => new Date());
-  const [echoOpen, setEchoOpen] = useState(false);
-  const revealOnce = useRevealOnce(onReveal);
-  const reveal = useCallback((id: string) => {
-    revealOnce(id);
-    if (id === "echo") setEchoOpen(true);
-  }, [revealOnce]);
-  useAutomaticScene(sceneTimelines.finale.reveals, sceneTimelines.finale.presentMs, reveal, onComplete, active, paused);
+  useFirstReveal(sceneTimelines.finale.reveals[0].id, onReveal, active && !paused);
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
   const elapsed = useMemo(() => elapsedSinceConfession(now), [now]);
-  return <div className="finale-copy"><div className="finale-coordinate" aria-hidden="true">05:23</div><div className="love-clock"><span><b>{elapsed.days}</b>天</span><span><b>{elapsed.hours}</b>时</span><span><b>{elapsed.minutes}</b>分</span><span><b>{elapsed.seconds}</b>秒</span></div>{echoOpen ? <><p className="final-line">{finalCopy.lines[0]}<br />{finalCopy.lines[1]}</p><p className="signature">TO {finalCopy.to}<br />FROM {finalCopy.from}<br />SINCE {finalCopy.since}</p><button className="replay-button" onClick={onRestart}>重新进入这片宇宙</button></> : <p role="status">正在汇聚回音</p>}</div>;
+  return <div className="finale-copy"><div className="finale-coordinate" aria-hidden="true">05:23</div><div className="love-clock"><span><b>{elapsed.days}</b>天</span><span><b>{elapsed.hours}</b>时</span><span><b>{elapsed.minutes}</b>分</span><span><b>{elapsed.seconds}</b>秒</span></div>{finalRevealed ? <><p className="final-line">{finalCopy.lines[0]}<br />{finalCopy.lines[1]}</p><p className="signature">TO {finalCopy.to}<br />FROM {finalCopy.from}<br />SINCE {finalCopy.since}</p><button className="replay-button" onClick={onRestart}>重新进入这片宇宙</button></> : <p role="status">正在汇聚回音</p>}</div>;
 }

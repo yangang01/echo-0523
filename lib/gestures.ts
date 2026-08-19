@@ -32,3 +32,15 @@ export function classifySwipe(start: TimedPoint, end: TimedPoint): "up" | "none"
 
   return "none";
 }
+
+export function classifyHorizontalSwipe(start: TimedPoint, end: TimedPoint): "left" | "right" | "none" {
+  if (!Number.isFinite(start.at) || !Number.isFinite(end.at) || end.at < start.at) return "none";
+
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const horizontalDistance = Math.abs(dx);
+  const horizontalDominant = horizontalDistance > Math.abs(dy) * 1.35;
+
+  if (horizontalDistance < 42 || !horizontalDominant) return "none";
+  return dx < 0 ? "left" : "right";
+}
