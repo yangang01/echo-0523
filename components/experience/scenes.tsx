@@ -125,6 +125,7 @@ export function WakeScene({ onComplete, onReveal, active = true, paused = false 
       aria-label="把 Y 靠近 U"
       disabled={!enabled}
       onContextMenu={(event) => event.preventDefault()}
+      onClick={startAttraction}
       onPointerDown={(event) => {
         if (!enabled || (event.button !== undefined && event.button !== 0) || event.isPrimary === false || ownerPointer.current !== null) return;
         ownerPointer.current = event.pointerId;

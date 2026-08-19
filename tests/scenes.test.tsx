@@ -119,6 +119,13 @@ test("wake keyboard fallback enables manual reading and context menus stay local
   expect(fireEvent.contextMenu(root)).toBe(true);
 });
 
+test("wake tap fallback unlocks manual reading when mobile drag events are unavailable", () => {
+  const onComplete = vi.fn();
+  render(<WakeScene onComplete={onComplete} onReveal={noop} />);
+  fireEvent.click(screen.getByRole("button", { name: "把 Y 靠近 U" }));
+  expect(screen.getByRole("button", { name: "读取下一段" })).toBeEnabled();
+});
+
 test("wake clears pointer ownership even when capture release throws", () => {
   vi.useFakeTimers();
   const onReveal = vi.fn();
