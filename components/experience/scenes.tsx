@@ -194,10 +194,11 @@ export function resolveSignalCue(cue: RevealCue, channel: SignalChannel): Reveal
   return { ...cue, id: channel.responses[responseIndex].type };
 }
 
-export function SignalScene({ onResponse, onComplete, onReveal, onChannelSelected, active = true, paused = false }: BasicProps & { onResponse: (type: ResponseType) => void; onChannelSelected: (channelId: SignalChannelId) => void }) {
+export function SignalScene({ onResponse, onComplete, onReveal, onChannelSelected, onAdvance, active = true, paused = false }: BasicProps & { onResponse: (type: ResponseType) => void; onChannelSelected: (channelId: SignalChannelId) => void; onAdvance: () => void }) {
   const [channelId, setChannelId] = useState<SignalChannelId | null>(null);
   const [heard, setHeard] = useState<ResponseType[]>([]);
   const selected = useRef(false);
+  const advanced = useRef(false);
   const responded = useRef(new Set<ResponseType>());
   const revealOnce = useRevealOnce(onReveal);
   const channel = useMemo(() => signalChannels.find((item) => item.id === channelId), [channelId]);
@@ -223,11 +224,17 @@ export function SignalScene({ onResponse, onComplete, onReveal, onChannelSelecte
     if (!active || paused || selected.current) return;
     selected.current = true;
     onChannelSelected(item.id);
+    const firstCue = resolveSignalCue(sceneTimelines.signal.reveals[0], item);
+    if (firstCue) handleCue(firstCue.id);
     setChannelId(item.id);
   }} aria-label={item.label}><i>{item.icon}</i><span>{item.label}</span></button>)}</div>;
 
   const latest = channel.responses.findLast((item) => heard.includes(item.type));
-  return <div className="response-console"><p className="selected-channel">频道已接通 · {channel.label}</p><div className="response-live" role="status" aria-live="polite">{latest ? <><b>{latest.label}</b><span>{latest.text}</span></> : null}</div></div>;
+  return <div className="response-console"><p className="selected-channel">频道已接通 · {channel.label}</p><div className="response-live" role="status" aria-live="polite">{latest ? <><b>{latest.label}</b><span>{latest.text}</span></> : null}</div><button type="button" className="signal-advance" disabled={!active || paused} onClick={() => {
+    if (advanced.current) return;
+    advanced.current = true;
+    onAdvance();
+  }}>进入下一幕</button></div>;
 }
 
 export function GameScene({ onComplete, onReveal, active = true, paused = false }: BasicProps) {

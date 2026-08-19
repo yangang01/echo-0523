@@ -96,6 +96,22 @@ function finishAutomaticScene(scene: "confession" | "privilege" | "game" | "nigh
   act(() => vi.advanceTimersByTime(sceneTimelines[scene].presentMs));
 }
 
+function enterSignalScene() {
+  finishWakePresentation();
+  waitForAutomaticAdvance("wake");
+
+  act(() => vi.advanceTimersByTime(sceneTimelines.jealousy.enterMs));
+  fireEvent.change(screen.getByRole("slider", { name: "滑动解码心跳" }), { target: { value: "100" } });
+  act(() => vi.advanceTimersByTime(sceneTimelines.jealousy.presentMs));
+  waitForAutomaticAdvance("jealousy");
+
+  finishAutomaticScene("confession");
+  waitForAutomaticAdvance("confession");
+  finishAutomaticScene("privilege");
+  waitForAutomaticAdvance("privilege");
+  act(() => vi.advanceTimersByTime(sceneTimelines.signal.enterMs));
+}
+
 test("renders the persistent YU visual, current scene, progress, and sound control", () => {
   render(<EchoExperience />);
   expect(document.querySelector(".echo-canvas")).toBeInTheDocument();
@@ -373,6 +389,21 @@ test("the YU visual node survives a real scene transition", () => {
   finishWakePresentation();
   waitForAutomaticAdvance("wake");
   expect(document.querySelector(".echo-canvas")).toBe(canvas);
+});
+
+test("a signal choice can enter scene six immediately without waiting for its narration or idle timer", () => {
+  vi.useFakeTimers();
+  render(<EchoExperience />);
+  enterSignalScene();
+
+  fireEvent.click(screen.getByRole("button", { name: "发生了小事" }));
+  const advance = screen.getByRole("button", { name: "进入下一幕" });
+  fireEvent.click(advance);
+  fireEvent.click(advance);
+  act(() => vi.advanceTimersByTime(sceneTimelines.signal.exitMs - 1));
+  expect(screen.getByText("05 / 08")).toBeInTheDocument();
+  act(() => vi.advanceTimersByTime(1));
+  expect(screen.getByText("06 / 08")).toBeInTheDocument();
 });
 
 test("an upward drag that starts on the transcript reviews copy but never advances", () => {

@@ -141,6 +141,10 @@ function DirectedScene({ state, dispatch, hidden, controlFocused, controlInterac
     sendDirector({ type: "RESUME", reason: "surface-focus", now });
     sendDirector({ type: "REQUEST_ADVANCE", now });
   }, [next]);
+  const advanceSignal = useCallback(() => {
+    complete();
+    requestAdvance();
+  }, [complete, requestAdvance]);
 
   const active = director.phase === "present";
   const sceneView = (() => {
@@ -150,7 +154,7 @@ function DirectedScene({ state, dispatch, hidden, controlFocused, controlInterac
       case "jealousy": return <JealousyScene {...props} />;
       case "confession": return <ConfessionScene {...props} />;
       case "privilege": return <PrivilegeScene {...props} />;
-      case "signal": return <SignalScene {...props} onResponse={(response) => dispatch({ type: "RESPONSE_SELECTED", response })} onChannelSelected={(channelId) => dispatch({ type: "SIGNAL_CHANNEL_SET", channelId })} />;
+      case "signal": return <SignalScene {...props} onResponse={(response) => dispatch({ type: "RESPONSE_SELECTED", response })} onChannelSelected={(channelId) => dispatch({ type: "SIGNAL_CHANNEL_SET", channelId })} onAdvance={advanceSignal} />;
       case "game": return <GameScene {...props} />;
       case "night": return <NightScene {...props} />;
       case "finale": return <FinaleScene {...props} onRestart={() => dispatch({ type: "RESTART" })} />;

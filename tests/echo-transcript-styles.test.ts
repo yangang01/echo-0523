@@ -200,6 +200,14 @@ test("removes obsolete continue controls and renders a safe-area swipe cue", () 
   expectDeclaration(cue, "animation", /swipe-breathe/);
 });
 
+test("gives the fifth-scene advance button a mobile-safe hit target and visible focus ring", () => {
+  const advance = ruleFor(".signal-advance");
+  expectDeclaration(advance, "min-height", /44px/);
+  expectDeclaration(advance, "grid-column", /1\s*\/\s*-1/);
+  expectDeclaration(ruleFor(".signal-advance:focus-visible"), "outline", /2px\s+solid/);
+  expect(mediaFor("max-height:680px")).not.toMatch(/\.signal-advance\s*\{[^}]*min-height:\s*(?:[0-3]?\d|4[0-3])px/);
+});
+
 test("gives all eight scenes distinct cinematic variables and semantic overlays", () => {
   const overlayAnimations = new Set<string>();
 

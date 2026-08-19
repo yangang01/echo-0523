@@ -138,6 +138,10 @@ button { color:inherit; -webkit-tap-highlight-color:transparent; }
 .response-live:empty::before { content:"WAITING FOR YOUR ECHO"; color:#78809d; font:500 8px/1 ui-monospace,monospace; letter-spacing:.22em; }
 .response-live b { margin:0 0 4px; color:var(--scene-accent); }
 .response-live span { display:block; max-width:34em; text-align:center; }
+.response-console .signal-advance { grid-column:1/-1; min-height:44px; display:flex; align-items:center; justify-content:center; padding:0 18px; border-color:#5beaff73; border-radius:999px; background:linear-gradient(135deg,#0a1d29e8,#17102ae8); color:#eefcff; text-align:center; box-shadow:0 8px 24px #0006,0 0 24px var(--scene-bloom),inset 0 0 18px #5beaff12; font:600 10px/1 ui-monospace,monospace; letter-spacing:.16em; }
+.signal-advance:hover { border-color:#8ff5ff; transform:translateY(-1px); }
+.signal-advance:disabled { cursor:default; opacity:.58; transform:none; }
+.signal-advance:focus-visible { outline:2px solid #eaffff; outline-offset:4px; box-shadow:0 0 0 5px #53ecff3d,0 0 28px var(--scene-accent); }
 
 .coop-game { display:grid; justify-items:center; gap:13px; }
 .light-track { position:relative; width:min(440px,90vw); height:74px; border-block:1px solid #30395d; overflow:hidden; }

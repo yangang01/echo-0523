@@ -239,17 +239,25 @@ test("signal locks one selected channel then schedules channel-derived replies",
   const onReveal = vi.fn();
   const onChannelSelected = vi.fn();
   const onComplete = vi.fn();
-  render(<SignalScene onResponse={onResponse} onComplete={onComplete} onReveal={onReveal} onChannelSelected={onChannelSelected} />);
+  const onAdvance = vi.fn();
+  render(<SignalScene onResponse={onResponse} onComplete={onComplete} onReveal={onReveal} onChannelSelected={onChannelSelected} onAdvance={onAdvance} />);
   expect(screen.getAllByRole("button")).toHaveLength(4);
   fireEvent.click(screen.getByRole("button", { name: "想吐槽一下" }));
   expect(onChannelSelected).toHaveBeenCalledOnce();
   expect(onChannelSelected).toHaveBeenCalledWith("rant");
-  expect(screen.queryAllByRole("button")).toHaveLength(0);
   expect(screen.getByText("频道已接通 · 想吐槽一下")).toBeInTheDocument();
   const responses = signalChannels.find((channel) => channel.id === "rant")!.responses;
-  expect(screen.queryByText(responses[0].text)).not.toBeInTheDocument();
+  expect(screen.getByText(responses[0].text)).toBeInTheDocument();
+  expect(onResponse).toHaveBeenCalledOnce();
+  expect(onReveal).toHaveBeenCalledOnce();
+  const advance = screen.getByRole("button", { name: "进入下一幕" });
+  fireEvent.click(advance);
+  fireEvent.click(advance);
+  expect(onAdvance).toHaveBeenCalledOnce();
   act(() => vi.advanceTimersByTime(1_200));
   expect(screen.getByText(responses[0].text)).toBeInTheDocument();
+  expect(onResponse).toHaveBeenCalledOnce();
+  expect(onReveal).toHaveBeenCalledOnce();
   expect(document.querySelector(".response-live")).toHaveTextContent(responses[0].text);
   expect(screen.getByRole("status")).toHaveTextContent(responses[0].text);
   expect(screen.queryByText(responses[1].text)).not.toBeInTheDocument();
@@ -281,15 +289,16 @@ test("signal cue resolver ignores malformed response slots", () => {
 test("signal cleans timers and disables choice controls while inactive", () => {
   vi.useFakeTimers();
   const onResponse = vi.fn();
-  const props = { onResponse, onComplete: vi.fn(), onReveal: vi.fn(), onChannelSelected: vi.fn() };
+  const props = { onResponse, onComplete: vi.fn(), onReveal: vi.fn(), onChannelSelected: vi.fn(), onAdvance: vi.fn() };
   const { rerender } = render(<SignalScene {...props} active={false} />);
   expect(screen.getAllByRole("button")).toHaveLength(4);
   for (const button of screen.getAllByRole("button")) expect(button).toBeDisabled();
   rerender(<SignalScene {...props} />);
   fireEvent.click(screen.getByRole("button", { name: "发生了小事" }));
+  expect(onResponse).toHaveBeenCalledOnce();
   rerender(<SignalScene {...props} active={false} />);
   act(() => vi.advanceTimersByTime(sceneTimelines.signal.presentMs));
-  expect(onResponse).not.toHaveBeenCalled();
+  expect(onResponse).toHaveBeenCalledOnce();
 });
 
 test("finale keeps its relationship clock running from entry until unmount", () => {
