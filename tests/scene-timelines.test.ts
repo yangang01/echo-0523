@@ -3,14 +3,14 @@ import { sceneEchoes, signalChannels } from "../lib/content";
 import { sceneOrder } from "../lib/experience";
 
 const expected = {
-  wake: { enterMs: 700, presentMs: 5400, exitMs: 1800, motion: "attract", transition: "gravity-wave", reveals: [{ at: 900, id: "spark" }, { at: 2500, id: "archive" }, { at: 4100, id: "receiver" }] },
-  jealousy: { enterMs: 650, presentMs: 5600, exitMs: 1750, motion: "disrupt", transition: "orbit-repair", reveals: [{ at: 1000, id: "praise" }, { at: 2700, id: "smile" }, { at: 4300, id: "meaning" }] },
-  confession: { enterMs: 800, presentMs: 6200, exitMs: 2100, motion: "lock", transition: "coordinate-beam", reveals: [{ at: 900, id: "year" }, { at: 2400, id: "month" }, { at: 3600, id: "day" }, { at: 4900, id: "locked" }] },
-  privilege: { enterMs: 720, presentMs: 6400, exitMs: 1900, motion: "orbit", transition: "petal-bloom", reveals: [{ at: 1000, id: "diary" }, { at: 2700, id: "remembered" }, { at: 4300, id: "seen" }, { at: 5400, id: "action" }] },
-  signal: { enterMs: 680, presentMs: 7200, exitMs: 1850, motion: "reply", transition: "echo-return", reveals: [{ at: 1200, id: "$response:0" }, { at: 3100, id: "$response:1" }, { at: 5000, id: "$response:2" }, { at: 6300, id: "close" }] },
-  game: { enterMs: 760, presentMs: 6500, exitMs: 1700, motion: "tunnel", transition: "dual-stream", reveals: [{ at: 900, id: "near" }, { at: 2700, id: "sync" }, { at: 4600, id: "through" }, { at: 5600, id: "complete" }] },
-  night: { enterMs: 820, presentMs: 7600, exitMs: 2000, motion: "sync", transition: "wave-merge", reveals: [{ at: 1700, id: "third" }, { at: 4100, id: "two-thirds" }, { at: 6200, id: "connected" }, { at: 7000, id: "frequency" }] },
-  finale: { enterMs: 900, presentMs: 7600, exitMs: 1800, motion: "infinity", transition: "yu-seal", reveals: [{ at: 1200, id: "recap" }, { at: 3700, id: "present" }, { at: 6100, id: "echo" }] },
+  wake: { enterMs: 700, presentMs: 31_200, exitMs: 1800, motion: "attract", transition: "gravity-wave", reveals: [{ at: 1200, id: "spark" }, { at: 11_200, id: "archive" }, { at: 21_200, id: "receiver" }] },
+  jealousy: { enterMs: 650, presentMs: 31_200, exitMs: 1750, motion: "disrupt", transition: "orbit-repair", reveals: [{ at: 1200, id: "praise" }, { at: 11_200, id: "smile" }, { at: 21_200, id: "meaning" }] },
+  confession: { enterMs: 800, presentMs: 41_200, exitMs: 2100, motion: "lock", transition: "coordinate-beam", reveals: [{ at: 1200, id: "year" }, { at: 11_200, id: "month" }, { at: 21_200, id: "day" }, { at: 31_200, id: "locked" }] },
+  privilege: { enterMs: 720, presentMs: 41_200, exitMs: 1900, motion: "orbit", transition: "petal-bloom", reveals: [{ at: 1200, id: "diary" }, { at: 11_200, id: "remembered" }, { at: 21_200, id: "seen" }, { at: 31_200, id: "action" }] },
+  signal: { enterMs: 680, presentMs: 41_200, exitMs: 1850, motion: "reply", transition: "echo-return", reveals: [{ at: 1200, id: "$response:0" }, { at: 11_200, id: "$response:1" }, { at: 21_200, id: "$response:2" }, { at: 31_200, id: "close" }] },
+  game: { enterMs: 760, presentMs: 41_200, exitMs: 1700, motion: "tunnel", transition: "dual-stream", reveals: [{ at: 1200, id: "near" }, { at: 11_200, id: "sync" }, { at: 21_200, id: "through" }, { at: 31_200, id: "complete" }] },
+  night: { enterMs: 820, presentMs: 41_200, exitMs: 2000, motion: "sync", transition: "wave-merge", reveals: [{ at: 1200, id: "third" }, { at: 11_200, id: "two-thirds" }, { at: 21_200, id: "connected" }, { at: 31_200, id: "frequency" }] },
+  finale: { enterMs: 900, presentMs: 31_200, exitMs: 1800, motion: "infinity", transition: "yu-seal", reveals: [{ at: 1200, id: "recap" }, { at: 11_200, id: "present" }, { at: 21_200, id: "echo" }] },
 } as const;
 
 test("defines the complete deterministic timeline for every ordered scene", () => {
@@ -24,6 +24,19 @@ test("defines the complete deterministic timeline for every ordered scene", () =
     expect(timeline.exitMs).toBeLessThanOrEqual(2200);
     expect(timeline.reveals.map((reveal) => reveal.at)).toEqual([...timeline.reveals.map((reveal) => reveal.at)].sort((a, b) => a - b));
     expect(timeline.presentMs).toBeGreaterThan(timeline.reveals.at(-1)!.at);
+  }
+});
+
+test("gives every fragment a ten-second reading window", () => {
+  for (const timeline of Object.values(sceneTimelines)) {
+    expect(timeline.reveals[0]?.at).toBe(1_200);
+    const boundaries = [
+      ...timeline.reveals.map((cue) => cue.at),
+      timeline.presentMs,
+    ];
+    for (let index = 1; index < boundaries.length; index += 1) {
+      expect(boundaries[index] - boundaries[index - 1]).toBe(10_000);
+    }
   }
 });
 
