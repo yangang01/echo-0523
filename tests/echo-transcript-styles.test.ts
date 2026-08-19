@@ -191,13 +191,24 @@ test("only the opening gravity control suppresses selection and touch callouts",
   }
 });
 
-test("removes obsolete continue controls and renders a safe-area swipe cue", () => {
+test("removes obsolete controls and renders an accessible safe-area next-scene button", () => {
   expect(css).not.toMatch(/\.next-scene(?:\s|\{|:|\.)/);
   const cue = ruleFor(".swipe-cue");
   expectDeclaration(cue, "position", /fixed/);
   expectDeclaration(cue, "bottom", /calc\([^;]*env\(safe-area-inset-bottom\)/);
-  expectDeclaration(cue, "pointer-events", /none/);
+  expect(numericPxDeclaration(cue, "min-height")).toBeGreaterThanOrEqual(44);
+  expectDeclaration(cue, "pointer-events", /auto/);
+  expectDeclaration(cue, "cursor", /pointer/);
   expectDeclaration(cue, "animation", /swipe-breathe/);
+
+  const focus = ruleFor(".swipe-cue:hover,.swipe-cue:focus-visible");
+  expectDeclaration(focus, "border-color", /#eaffffb8/);
+  expectDeclaration(focus, "box-shadow", /[^;]*var\(--scene-bloom\)/);
+  expectDeclaration(focus, "outline", /none/);
+
+  const shortCue = ruleFor(".swipe-cue", mediaFor("max-height:680px"));
+  expect(numericPxDeclaration(shortCue, "min-height")).toBeGreaterThanOrEqual(44);
+  expectDeclaration(shortCue, "bottom", /calc\([^;]*env\(safe-area-inset-bottom\)/);
 });
 
 test("gives all eight scenes distinct cinematic variables and semantic overlays", () => {
