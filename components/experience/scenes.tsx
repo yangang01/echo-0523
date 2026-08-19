@@ -20,8 +20,10 @@ function useRevealOnce(onReveal: (fragmentId: string) => void) {
   }, []);
 }
 
-export function useManualScene(
+/** Schedules a scene's immutable timeline without coupling it to render churn. */
+export function useAutomaticScene(
   cues: readonly RevealCue[],
+  totalMs: number,
   onReveal: (fragmentId: string) => void,
   onComplete: () => void,
   enabled = true,
@@ -29,38 +31,49 @@ export function useManualScene(
 ) {
   const revealRef = useRef(onReveal);
   const completeRef = useRef(onComplete);
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const completed = useRef(false);
-  const [index, setIndex] = useState(0);
-  const [finalRevealed, setFinalRevealed] = useState(false);
-  const [completedState, setCompletedState] = useState(false);
+  const elapsed = useRef(0);
+  const fired = useRef(new Set<string>());
   useEffect(() => { revealRef.current = onReveal; }, [onReveal]);
   useEffect(() => { completeRef.current = onComplete; }, [onComplete]);
-  const advance = useCallback(() => {
-    if (!enabled || paused || completed.current) return;
-    if (finalRevealed) {
-      completed.current = true;
-      setCompletedState(true);
-      completeRef.current();
-      return;
-    }
-    if (index >= cues.length) return;
-    const cue = cues[index];
-    revealRef.current(cue.id);
-    if (index === cues.length - 1) {
-      setFinalRevealed(true);
-      return;
-    }
-    setIndex((current) => current + 1);
-  }, [cues, enabled, finalRevealed, index, paused]);
-  return {
-    advance,
-    canAdvance: enabled && !paused && !completedState && (index < cues.length || finalRevealed),
-    label: finalRevealed ? "进入下一幕" : "读取下一段",
-  };
-}
 
-function ManualStepButton({ advance, canAdvance, label }: ReturnType<typeof useManualScene>) {
-  return <button type="button" className="scene-step" disabled={!canAdvance} onClick={advance}>{label}</button>;
+  useEffect(() => {
+    if (!enabled) {
+      elapsed.current = 0;
+      return;
+    }
+    if (paused || completed.current) return;
+    const segmentElapsed = elapsed.current;
+    const segmentStartedAt = performance.now();
+    let segmentCompleted = false;
+    const clear = () => {
+      timers.current.forEach(clearTimeout);
+      timers.current = [];
+    };
+    cues.forEach((cue, index) => {
+      const key = `${index}:${cue.at}:${cue.id}`;
+      if (fired.current.has(key)) return;
+      timers.current.push(setTimeout(() => {
+        if (fired.current.has(key)) return;
+        fired.current.add(key);
+        revealRef.current(cue.id);
+      }, Math.max(0, cue.at - segmentElapsed)));
+    });
+    timers.current.push(setTimeout(() => {
+      if (completed.current) return;
+      completed.current = true;
+      segmentCompleted = true;
+      elapsed.current = totalMs;
+      completeRef.current();
+    }, Math.max(0, totalMs - segmentElapsed)));
+    return () => {
+      clear();
+      if (!segmentCompleted) {
+        elapsed.current = Math.min(totalMs, segmentElapsed + Math.max(0, performance.now() - segmentStartedAt));
+      }
+    };
+  }, [cues, enabled, paused, totalMs]);
 }
 
 export function WakeScene({ onComplete, onReveal, active = true, paused = false }: BasicProps) {
@@ -98,7 +111,7 @@ export function WakeScene({ onComplete, onReveal, active = true, paused = false 
 
   useEffect(() => { if (!active || paused) releaseOwner(true); }, [active, paused, releaseOwner]);
 
-  const manual = useManualScene(sceneTimelines.wake.reveals, revealOnce, onComplete, active && attracted, paused);
+  useAutomaticScene(sceneTimelines.wake.reveals, sceneTimelines.wake.presentMs, revealOnce, onComplete, active && attracted, paused);
 
   const startAttraction = useCallback(() => {
     if (!active || paused || attractedRef.current) return;
@@ -125,7 +138,6 @@ export function WakeScene({ onComplete, onReveal, active = true, paused = false 
       aria-label="把 Y 靠近 U"
       disabled={!enabled}
       onContextMenu={(event) => event.preventDefault()}
-      onClick={startAttraction}
       onPointerDown={(event) => {
         if (!enabled || (event.button !== undefined && event.button !== 0) || event.isPrimary === false || ownerPointer.current !== null) return;
         ownerPointer.current = event.pointerId;
@@ -145,7 +157,6 @@ export function WakeScene({ onComplete, onReveal, active = true, paused = false 
     >Y</button>
     <span className="gravity-u" aria-hidden="true">U</span>
     <p>拖动 Y，靠近 U</p>
-    <ManualStepButton {...manual} />
   </div>;
 }
 
@@ -153,20 +164,27 @@ export function JealousyScene({ onComplete, onReveal, active = true, paused = fa
   const [value, setValue] = useState(12);
   const revealOnce = useRevealOnce(onReveal);
   const done = value >= 92;
-  const manual = useManualScene(sceneTimelines.jealousy.reveals, revealOnce, onComplete, active && done, paused);
-  return <div className="signal-scrub"><div className="waveform" style={{ "--clarity": `${value}%` } as CSSProperties}><span>{done ? "在意" : "心跳失序"}</span></div><label>向右解码<input aria-label="滑动解码心跳" type="range" min="0" max="100" value={value} disabled={!active || paused} onChange={(event) => { if (active && !paused) setValue(Number(event.target.value)); }} /></label><ManualStepButton {...manual} /></div>;
+  useAutomaticScene(
+    sceneTimelines.jealousy.reveals,
+    sceneTimelines.jealousy.presentMs,
+    revealOnce,
+    onComplete,
+    active && done,
+    paused,
+  );
+  return <div className="signal-scrub"><div className="waveform" style={{ "--clarity": `${value}%` } as CSSProperties}><span>{done ? "在意" : "心跳失序"}</span></div><label>向右解码<input aria-label="滑动解码心跳" type="range" min="0" max="100" value={value} disabled={!active || paused} onChange={(event) => { if (active && !paused) setValue(Number(event.target.value)); }} /></label></div>;
 }
 
 export function ConfessionScene({ onComplete, onReveal, active = true, paused = false }: BasicProps) {
   const revealOnce = useRevealOnce(onReveal);
-  const manual = useManualScene(sceneTimelines.confession.reveals, revealOnce, onComplete, active, paused);
-  return <div className="coordinate-lock-auto" role="img" aria-label="2026·05·23 正在锁定"><span>2026 · 05 · 23</span><p role="status">LOVE COORDINATE LOCKING</p><ManualStepButton {...manual} /></div>;
+  useAutomaticScene(sceneTimelines.confession.reveals, sceneTimelines.confession.presentMs, revealOnce, onComplete, active, paused);
+  return <div className="coordinate-lock-auto" role="img" aria-label="2026·05·23 正在自动锁定"><span>2026 · 05 · 23</span><p role="status">LOVE COORDINATE LOCKING</p></div>;
 }
 
 export function PrivilegeScene({ onComplete, onReveal, active = true, paused = false }: BasicProps) {
   const revealOnce = useRevealOnce(onReveal);
-  const manual = useManualScene(sceneTimelines.privilege.reveals, revealOnce, onComplete, active, paused);
-  return <div className="privilege-bloom" role="status" aria-label="偏爱轨道正在点亮"><span aria-hidden="true">{"✦\u3000✧\u3000✦"}</span><strong>偏爱轨道正在点亮</strong><ManualStepButton {...manual} /></div>;
+  useAutomaticScene(sceneTimelines.privilege.reveals, sceneTimelines.privilege.presentMs, revealOnce, onComplete, active, paused);
+  return <div className="privilege-bloom" role="status" aria-label="偏爱轨道正在点亮"><span aria-hidden="true">{"✦\u3000✧\u3000✦"}</span><strong>偏爱轨道正在点亮</strong></div>;
 }
 
 export function resolveSignalCue(cue: RevealCue, channel: SignalChannel): RevealCue | null {
@@ -199,7 +217,7 @@ export function SignalScene({ onResponse, onComplete, onReveal, onChannelSelecte
     }
     revealOnce(id);
   }, [onResponse, revealOnce]);
-  const manual = useManualScene(cues, handleCue, onComplete, active && channelId !== null, paused);
+  useAutomaticScene(cues, sceneTimelines.signal.presentMs, handleCue, onComplete, active && channelId !== null, paused);
 
   if (!channel) return <div className="channel-grid">{signalChannels.map((item) => <button key={item.id} disabled={!active || paused} onClick={() => {
     if (!active || paused || selected.current) return;
@@ -209,19 +227,19 @@ export function SignalScene({ onResponse, onComplete, onReveal, onChannelSelecte
   }} aria-label={item.label}><i>{item.icon}</i><span>{item.label}</span></button>)}</div>;
 
   const latest = channel.responses.findLast((item) => heard.includes(item.type));
-  return <div className="response-console"><p className="selected-channel">频道已接通 · {channel.label}</p><div className="response-live" role="status" aria-live="polite">{latest ? <><b>{latest.label}</b><span>{latest.text}</span></> : null}</div><ManualStepButton {...manual} /></div>;
+  return <div className="response-console"><p className="selected-channel">频道已接通 · {channel.label}</p><div className="response-live" role="status" aria-live="polite">{latest ? <><b>{latest.label}</b><span>{latest.text}</span></> : null}</div></div>;
 }
 
 export function GameScene({ onComplete, onReveal, active = true, paused = false }: BasicProps) {
   const revealOnce = useRevealOnce(onReveal);
-  const manual = useManualScene(sceneTimelines.game.reveals, revealOnce, onComplete, active, paused);
-  return <div className="dual-stream-gates" role="status" aria-label="双人副本的三道关卡等待手动开启"><div className="light-track"><i /><i /><span /></div><span>靠近</span><span>同步</span><span>穿越</span><ManualStepButton {...manual} /></div>;
+  useAutomaticScene(sceneTimelines.game.reveals, sceneTimelines.game.presentMs, revealOnce, onComplete, active, paused);
+  return <div className="dual-stream-gates" role="status" aria-label="双人副本的三道关卡正在自动开启"><div className="light-track"><i /><i /><span /></div><span>靠近</span><span>同步</span><span>穿越</span></div>;
 }
 
 export function NightScene({ onComplete, onReveal, active = true, paused = false }: BasicProps) {
   const revealOnce = useRevealOnce(onReveal);
-  const manual = useManualScene(sceneTimelines.night.reveals, revealOnce, onComplete, active, paused);
-  return <div className="frequency-link-auto" role="img" aria-label="Y 与 U 的深夜频率等待手动同频"><span className="frequency-line" /><b>我们正在同频</b><ManualStepButton {...manual} /></div>;
+  useAutomaticScene(sceneTimelines.night.reveals, sceneTimelines.night.presentMs, revealOnce, onComplete, active, paused);
+  return <div className="frequency-link-auto" role="img" aria-label="Y 与 U 的深夜频率正在自动同频"><span className="frequency-line" /><b>我们正在同频</b></div>;
 }
 
 export function FinaleScene({ onComplete, onReveal, onRestart, active = true, paused = false }: BasicProps & { onRestart: () => void }) {
@@ -232,11 +250,11 @@ export function FinaleScene({ onComplete, onReveal, onRestart, active = true, pa
     revealOnce(id);
     if (id === "echo") setEchoOpen(true);
   }, [revealOnce]);
-  const manual = useManualScene(sceneTimelines.finale.reveals, reveal, onComplete, active, paused);
+  useAutomaticScene(sceneTimelines.finale.reveals, sceneTimelines.finale.presentMs, reveal, onComplete, active, paused);
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
   const elapsed = useMemo(() => elapsedSinceConfession(now), [now]);
-  return <div className="finale-copy"><div className="finale-coordinate" aria-hidden="true">05:23</div><div className="love-clock"><span><b>{elapsed.days}</b>天</span><span><b>{elapsed.hours}</b>时</span><span><b>{elapsed.minutes}</b>分</span><span><b>{elapsed.seconds}</b>秒</span></div>{echoOpen ? <><p className="final-line">{finalCopy.lines[0]}<br />{finalCopy.lines[1]}</p><p className="signature">TO {finalCopy.to}<br />FROM {finalCopy.from}<br />SINCE {finalCopy.since}</p><ManualStepButton {...manual} /><button className="replay-button" onClick={onRestart}>重新进入这片宇宙</button></> : <><p role="status">正在汇聚回音</p><ManualStepButton {...manual} /></>}</div>;
+  return <div className="finale-copy"><div className="finale-coordinate" aria-hidden="true">05:23</div><div className="love-clock"><span><b>{elapsed.days}</b>天</span><span><b>{elapsed.hours}</b>时</span><span><b>{elapsed.minutes}</b>分</span><span><b>{elapsed.seconds}</b>秒</span></div>{echoOpen ? <><p className="final-line">{finalCopy.lines[0]}<br />{finalCopy.lines[1]}</p><p className="signature">TO {finalCopy.to}<br />FROM {finalCopy.from}<br />SINCE {finalCopy.since}</p><button className="replay-button" onClick={onRestart}>重新进入这片宇宙</button></> : <p role="status">正在汇聚回音</p>}</div>;
 }

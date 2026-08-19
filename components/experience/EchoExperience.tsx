@@ -102,6 +102,15 @@ function DirectedScene({ state, dispatch, hidden, controlFocused, controlInterac
   const directorPaused = director.paused.length > 0;
   usePausableTimeout(director.phase === "enter", directorPaused, timeline.enterMs, startPresentation);
 
+  useEffect(() => {
+    if (!next || director.phase !== "ready" || director.autoAdvanceAt === null) return;
+    const delay = Math.max(0, director.autoAdvanceAt - timestamp());
+    const timer = setTimeout(() => {
+      sendDirector({ type: "IDLE_EXPIRED", now: timestamp() });
+    }, delay);
+    return () => clearTimeout(timer);
+  }, [director.autoAdvanceAt, director.phase, next]);
+
   const advanceScene = useCallback(() => {
     if (next) dispatch({ type: "ADVANCE_TO", from: scene, to: next });
   }, [dispatch, next, scene]);
@@ -162,7 +171,7 @@ function DirectedScene({ state, dispatch, hidden, controlFocused, controlInterac
           {sceneView}
         </ScenePanel>
       </div>
-      {director.phase === "ready" && next ? <button type="button" className="swipe-cue" onClick={requestAdvance}>点击或上划进入下一幕</button> : null}
+      {director.phase === "ready" && next ? <div className="swipe-cue" aria-hidden="true">向上划过星轨</div> : null}
     </GestureSurface>
   );
 }

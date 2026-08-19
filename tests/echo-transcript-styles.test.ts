@@ -132,21 +132,6 @@ test("styles finale reveal controls as intentional pill buttons", () => {
   expect(finaleReveal).toMatch(/cursor:\s*pointer/);
 });
 
-test("styles manual scene-step controls as accessible reader actions", () => {
-  const step = ruleFor(".scene-step");
-  expectDeclaration(step, "min-height", /44px/);
-  expectDeclaration(step, "border-radius", /999px/);
-  expectDeclaration(step, "cursor", /pointer/);
-  expect(step).toMatch(/background:/);
-
-  const focus = ruleFor(".scene-step:hover,.scene-step:focus-visible");
-  expectDeclaration(focus, "outline", /none/);
-  expect(focus).toMatch(/border-color:/);
-
-  const shortStep = ruleFor(".scene-step", mediaFor("max-height:680px"));
-  expect(numericPxDeclaration(shortStep, "min-height")).toBeGreaterThanOrEqual(44);
-});
-
 test("mobile cinematic shell uses dynamic viewport and safe areas", () => {
   const shell = ruleFor(".echo-experience");
   expectDeclaration(shell, "min-height", /100dvh/);
@@ -206,24 +191,13 @@ test("only the opening gravity control suppresses selection and touch callouts",
   }
 });
 
-test("removes obsolete controls and renders an accessible safe-area next-scene button", () => {
+test("removes obsolete continue controls and renders a safe-area swipe cue", () => {
   expect(css).not.toMatch(/\.next-scene(?:\s|\{|:|\.)/);
   const cue = ruleFor(".swipe-cue");
   expectDeclaration(cue, "position", /fixed/);
   expectDeclaration(cue, "bottom", /calc\([^;]*env\(safe-area-inset-bottom\)/);
-  expect(numericPxDeclaration(cue, "min-height")).toBeGreaterThanOrEqual(44);
-  expectDeclaration(cue, "pointer-events", /auto/);
-  expectDeclaration(cue, "cursor", /pointer/);
+  expectDeclaration(cue, "pointer-events", /none/);
   expectDeclaration(cue, "animation", /swipe-breathe/);
-
-  const focus = ruleFor(".swipe-cue:hover,.swipe-cue:focus-visible");
-  expectDeclaration(focus, "border-color", /#eaffffb8/);
-  expectDeclaration(focus, "box-shadow", /[^;]*var\(--scene-bloom\)/);
-  expectDeclaration(focus, "outline", /none/);
-
-  const shortCue = ruleFor(".swipe-cue", mediaFor("max-height:680px"));
-  expect(numericPxDeclaration(shortCue, "min-height")).toBeGreaterThanOrEqual(44);
-  expectDeclaration(shortCue, "bottom", /calc\([^;]*env\(safe-area-inset-bottom\)/);
 });
 
 test("gives all eight scenes distinct cinematic variables and semantic overlays", () => {
