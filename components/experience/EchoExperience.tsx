@@ -13,7 +13,7 @@ import {
 } from "../../lib/experience";
 import { sceneTimelines } from "../../lib/scene-timelines";
 import { AudioEngine } from "./AudioEngine";
-import { GestureSurface } from "./GestureSurface";
+import { GestureSurface, type GesturePauseSource } from "./GestureSurface";
 import { ScenePanel } from "./ScenePanel";
 import { ConfessionScene, FinaleScene, GameScene, JealousyScene, NightScene, PrivilegeScene, SignalScene, WakeScene } from "./scenes";
 import { TwinGravityCanvas } from "./TwinGravityCanvas";
@@ -22,6 +22,8 @@ type DirectedSceneProps = {
   state: ExperienceState;
   dispatch: Dispatch<ExperienceEvent>;
   hidden: boolean;
+  controlFocused: boolean;
+  controlInteraction: number;
   onPhaseChange: (scene: SceneId, phase: DirectorPhase) => void;
 };
 
@@ -54,11 +56,13 @@ function usePausableTimeout(enabled: boolean, paused: boolean, duration: number,
   }, [duration, enabled, onElapsed, paused]);
 }
 
-function DirectedScene({ state, dispatch, hidden, onPhaseChange }: DirectedSceneProps) {
+function DirectedScene({ state, dispatch, hidden, controlFocused, controlInteraction, onPhaseChange }: DirectedSceneProps) {
   const { scene } = state;
   const timeline = sceneTimelines[scene];
   const [director, sendDirector] = useReducer(reduceDirector, scene, createDirector);
   const completed = useRef(false);
+  const controlFocusOwned = useRef(false);
+  const previousControlInteraction = useRef(controlInteraction);
   const sceneIndex = sceneOrder.indexOf(scene);
   const next = sceneOrder[sceneIndex + 1];
   const transcript = state.transcript[scene];
@@ -71,6 +75,26 @@ function DirectedScene({ state, dispatch, hidden, onPhaseChange }: DirectedScene
   useEffect(() => {
     sendDirector({ type: hidden ? "PAUSE" : "RESUME", reason: "hidden", now: timestamp() });
   }, [hidden]);
+
+  useEffect(() => {
+    const shouldOwnFocus = director.phase === "ready" && controlFocused;
+    if (controlFocusOwned.current === shouldOwnFocus) return;
+    controlFocusOwned.current = shouldOwnFocus;
+    sendDirector({
+      type: shouldOwnFocus ? "PAUSE" : "RESUME",
+      reason: "control-focus",
+      now: timestamp(),
+    });
+  }, [controlFocused, director.phase]);
+
+  useEffect(() => {
+    if (previousControlInteraction.current === controlInteraction) return;
+    previousControlInteraction.current = controlInteraction;
+    if (director.phase !== "ready") return;
+    const now = timestamp();
+    sendDirector({ type: "PAUSE", reason: "control-interaction", now });
+    sendDirector({ type: "RESUME", reason: "control-interaction", now });
+  }, [controlInteraction, director.phase]);
 
   const startPresentation = useCallback(() => {
     sendDirector({ type: "START_PRESENTATION", now: timestamp() });
@@ -107,12 +131,14 @@ function DirectedScene({ state, dispatch, hidden, onPhaseChange }: DirectedScene
   const reading = useCallback((paused: boolean) => {
     sendDirector({ type: paused ? "PAUSE" : "RESUME", reason: "reading", now: timestamp() });
   }, []);
+  const gesturePause = useCallback((source: GesturePauseSource, paused: boolean) => {
+    sendDirector({ type: paused ? "PAUSE" : "RESUME", reason: source, now: timestamp() });
+  }, []);
   const requestAdvance = useCallback(() => {
     if (!next) return;
     const now = timestamp();
-    // GestureSurface pauses while it measures a swipe. Resume that semantic
-    // gesture before requesting exit so the reducer sees one atomic intent.
-    sendDirector({ type: "RESUME", reason: "reading", now });
+    sendDirector({ type: "RESUME", reason: "gesture", now });
+    sendDirector({ type: "RESUME", reason: "surface-focus", now });
     sendDirector({ type: "REQUEST_ADVANCE", now });
   }, [next]);
 
@@ -132,7 +158,7 @@ function DirectedScene({ state, dispatch, hidden, onPhaseChange }: DirectedScene
   })();
 
   return (
-    <GestureSurface enabled={director.phase === "ready" && Boolean(next)} onAdvance={requestAdvance} onPause={reading}>
+    <GestureSurface enabled={director.phase === "ready" && Boolean(next)} onAdvance={requestAdvance} onPause={gesturePause}>
       <div className={`scene-stage scene-phase-${director.phase}`}>
         <ScenePanel
           scene={scene}
@@ -153,6 +179,8 @@ function DirectedScene({ state, dispatch, hidden, onPhaseChange }: DirectedScene
 export function EchoExperience() {
   const [state, dispatch] = useReducer(reduceExperience, undefined, createExperience);
   const [sound, setSound] = useState(false);
+  const [soundFocused, setSoundFocused] = useState(false);
+  const [controlInteraction, noteControlInteraction] = useReducer((value: number) => value + 1, 0);
   const [hidden, setHidden] = useState(() => typeof document !== "undefined" && document.visibilityState === "hidden");
   const [visual, setVisual] = useState<{ scene: SceneId; phase: DirectorPhase }>({ scene: "wake", phase: "enter" });
   const sceneIndex = sceneOrder.indexOf(state.scene);
@@ -173,9 +201,9 @@ export function EchoExperience() {
     <div className="cinematic-plate" aria-hidden="true" />
     <TwinGravityCanvas scene={state.scene} phase={visualPhase} growth={state.growth} />
     <div className="vignette" aria-hidden="true" />
-    <header className="experience-header"><div className="brand"><span className="brand-mark">05·23</span><span>ECHO CORE</span></div><button className="sound-button" aria-label={sound ? "关闭声音" : "开启声音"} onClick={() => setSound((value) => !value)}>{sound ? "声场 ON" : "声场 OFF"}</button></header>
+    <header className="experience-header"><div className="brand"><span className="brand-mark">05·23</span><span>ECHO CORE</span></div><button className="sound-button" aria-label={sound ? "关闭声音" : "开启声音"} onBlur={() => setSoundFocused(false)} onClick={() => { setSound((value) => !value); noteControlInteraction(); }} onFocus={() => setSoundFocused(true)}>{sound ? "声场 ON" : "声场 OFF"}</button></header>
     <div className="progress-rail" aria-label={`体验进度 ${sceneIndex + 1} / 8`}><span style={{ height: `${((sceneIndex + 1) / 8) * 100}%` }} /><b>{String(sceneIndex + 1).padStart(2, "0")} / 08</b></div>
-    <DirectedScene key={state.scene} state={state} dispatch={dispatch} hidden={hidden} onPhaseChange={reportPhase} />
+    <DirectedScene key={state.scene} state={state} dispatch={dispatch} hidden={hidden} controlFocused={soundFocused} controlInteraction={controlInteraction} onPhaseChange={reportPhase} />
     <AudioEngine enabled={sound} paused={hidden} cue={cue} />
     <div className="scene-index" aria-hidden="true">0{sceneIndex + 1}</div>
   </main>;

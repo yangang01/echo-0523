@@ -111,6 +111,75 @@ test("reading pauses progression and release restarts the full twelve-second idl
   expect(screen.getByText("02 / 08")).toBeInTheDocument();
 });
 
+test("sound focus pauses ready idle and blur restarts a full twelve seconds", () => {
+  vi.useFakeTimers();
+  render(<EchoExperience />);
+  finishWakePresentation();
+  act(() => vi.advanceTimersByTime(11_900));
+
+  const sound = screen.getByRole("button", { name: "开启声音" });
+  fireEvent.focus(sound);
+  act(() => vi.advanceTimersByTime(30_000));
+  expect(screen.getByText("01 / 08")).toBeInTheDocument();
+
+  fireEvent.blur(sound);
+  act(() => vi.advanceTimersByTime(11_999));
+  expect(screen.getByText("01 / 08")).toBeInTheDocument();
+  act(() => vi.advanceTimersByTime(1));
+  act(() => vi.advanceTimersByTime(sceneTimelines.wake.exitMs));
+  expect(screen.getByText("02 / 08")).toBeInTheDocument();
+});
+
+test("a sound click resets ready idle even on devices that do not focus buttons", () => {
+  vi.useFakeTimers();
+  render(<EchoExperience />);
+  finishWakePresentation();
+  act(() => vi.advanceTimersByTime(11_900));
+
+  fireEvent.click(screen.getByRole("button", { name: "开启声音" }));
+  act(() => vi.advanceTimersByTime(11_999));
+  expect(screen.getByText("01 / 08")).toBeInTheDocument();
+  act(() => vi.advanceTimersByTime(1));
+  act(() => vi.advanceTimersByTime(sceneTimelines.wake.exitMs));
+  expect(screen.getByText("02 / 08")).toBeInTheDocument();
+});
+
+test("visibility keeps the remaining ready idle time instead of restarting it", () => {
+  vi.useFakeTimers();
+  render(<EchoExperience />);
+  finishWakePresentation();
+  act(() => vi.advanceTimersByTime(11_900));
+
+  act(() => setVisibility("hidden"));
+  act(() => vi.advanceTimersByTime(30_000));
+  expect(screen.getByText("01 / 08")).toBeInTheDocument();
+  act(() => setVisibility("visible"));
+  act(() => vi.advanceTimersByTime(99));
+  expect(screen.getByText("01 / 08")).toBeInTheDocument();
+  act(() => vi.advanceTimersByTime(1));
+  act(() => vi.advanceTimersByTime(sceneTimelines.wake.exitMs));
+  expect(screen.getByText("02 / 08")).toBeInTheDocument();
+});
+
+test("keyboard focus pauses ready idle and one navigation key advances exactly once", () => {
+  vi.useFakeTimers();
+  render(<EchoExperience />);
+  finishWakePresentation();
+  act(() => vi.advanceTimersByTime(11_900));
+
+  const surface = screen.getByTestId("gesture-surface");
+  fireEvent.focus(surface);
+  act(() => vi.advanceTimersByTime(30_000));
+  expect(screen.getByText("01 / 08")).toBeInTheDocument();
+
+  fireEvent.keyDown(surface, { key: "ArrowDown" });
+  fireEvent.keyUp(surface, { key: "ArrowDown" });
+  act(() => vi.advanceTimersByTime(sceneTimelines.wake.exitMs));
+  expect(screen.getByText("02 / 08")).toBeInTheDocument();
+  act(() => vi.advanceTimersByTime(30_000));
+  expect(screen.getByText("02 / 08")).toBeInTheDocument();
+});
+
 test("the YU visual node survives a real scene transition", () => {
   vi.useFakeTimers();
   render(<EchoExperience />);

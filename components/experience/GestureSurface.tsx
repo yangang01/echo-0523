@@ -1,12 +1,14 @@
 "use client";
 
-import { type KeyboardEvent, type PointerEvent, type ReactNode, type WheelEvent, useCallback, useEffect, useRef } from "react";
+import { type FocusEvent, type KeyboardEvent, type PointerEvent, type ReactNode, type WheelEvent, useCallback, useEffect, useRef } from "react";
 import { classifySwipe, type TimedPoint } from "../../lib/gestures";
+
+export type GesturePauseSource = "gesture" | "surface-focus";
 
 type GestureSurfaceProps = {
   enabled: boolean;
   onAdvance: () => void;
-  onPause: (paused: boolean) => void;
+  onPause: (source: GesturePauseSource, paused: boolean) => void;
   children: ReactNode;
 };
 
@@ -28,6 +30,8 @@ function isIgnoredGestureTarget(target: EventTarget | null, surface: HTMLDivElem
 export function GestureSurface({ enabled, onAdvance, onPause, children }: GestureSurfaceProps) {
   const activeGestureRef = useRef<ActiveGesture | null>(null);
   const onPauseRef = useRef(onPause);
+  const pointerFocusIntentRef = useRef(false);
+  const surfaceFocusPausedRef = useRef(false);
   const wheelLockedRef = useRef(false);
   const wheelTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -45,7 +49,13 @@ export function GestureSurface({ enabled, onAdvance, onPause, children }: Gestur
     } catch {
       // Pointer capture can be implicitly released before this handler runs.
     }
-    onPauseRef.current(false);
+    onPauseRef.current("gesture", false);
+  }, []);
+
+  const releaseSurfaceFocus = useCallback(() => {
+    if (!surfaceFocusPausedRef.current) return;
+    surfaceFocusPausedRef.current = false;
+    onPauseRef.current("surface-focus", false);
   }, []);
 
   const clearWheelLock = useCallback(() => {
@@ -56,6 +66,7 @@ export function GestureSurface({ enabled, onAdvance, onPause, children }: Gestur
 
   const cancelGesture = useCallback(() => {
     releaseGesture();
+    pointerFocusIntentRef.current = false;
     clearWheelLock();
   }, [clearWheelLock, releaseGesture]);
 
@@ -63,7 +74,10 @@ export function GestureSurface({ enabled, onAdvance, onPause, children }: Gestur
     const onVisibilityChange = () => {
       if (document.visibilityState === "hidden") cancelGesture();
     };
-    const onWindowBlur = () => cancelGesture();
+    const onWindowBlur = () => {
+      cancelGesture();
+      releaseSurfaceFocus();
+    };
 
     document.addEventListener("visibilitychange", onVisibilityChange);
     window.addEventListener("blur", onWindowBlur);
@@ -71,8 +85,9 @@ export function GestureSurface({ enabled, onAdvance, onPause, children }: Gestur
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("blur", onWindowBlur);
       cancelGesture();
+      releaseSurfaceFocus();
     };
-  }, [cancelGesture]);
+  }, [cancelGesture, releaseSurfaceFocus]);
 
   const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
     if (!event.isPrimary || event.button > 0 || activeGestureRef.current || isIgnoredGestureTarget(event.target, event.currentTarget)) return;
@@ -82,7 +97,8 @@ export function GestureSurface({ enabled, onAdvance, onPause, children }: Gestur
       pointerId: event.pointerId,
       target: event.currentTarget,
     };
-    onPauseRef.current(true);
+    pointerFocusIntentRef.current = true;
+    onPauseRef.current("gesture", true);
     event.currentTarget.setPointerCapture?.(event.pointerId);
   };
 
@@ -90,18 +106,24 @@ export function GestureSurface({ enabled, onAdvance, onPause, children }: Gestur
     const activeGesture = activeGestureRef.current;
     if (!activeGesture || activeGesture.pointerId !== event.pointerId) return;
 
-    if (enabled && classifySwipe(activeGesture.point, { x: event.clientX, y: event.clientY, at: performance.now() }) === "up") {
-      onAdvance();
-    }
+    const shouldAdvance = enabled && classifySwipe(activeGesture.point, { x: event.clientX, y: event.clientY, at: performance.now() }) === "up";
     releaseGesture();
+    pointerFocusIntentRef.current = false;
+    if (shouldAdvance) onAdvance();
   };
 
   const handlePointerCancel = (event: PointerEvent<HTMLDivElement>) => {
-    if (activeGestureRef.current?.pointerId === event.pointerId) releaseGesture();
+    if (activeGestureRef.current?.pointerId === event.pointerId) {
+      releaseGesture();
+      pointerFocusIntentRef.current = false;
+    }
   };
 
   const handleLostPointerCapture = (event: PointerEvent<HTMLDivElement>) => {
-    if (activeGestureRef.current?.pointerId === event.pointerId) releaseGesture();
+    if (activeGestureRef.current?.pointerId === event.pointerId) {
+      releaseGesture();
+      pointerFocusIntentRef.current = false;
+    }
   };
 
   const handleWheel = (event: WheelEvent<HTMLDivElement>) => {
@@ -119,7 +141,22 @@ export function GestureSurface({ enabled, onAdvance, onPause, children }: Gestur
     if (!enabled || event.target !== event.currentTarget || event.repeat || !["ArrowDown", "PageDown", " "].includes(event.key)) return;
 
     event.preventDefault();
+    releaseSurfaceFocus();
     onAdvance();
+  };
+
+  const handleFocus = (event: FocusEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget || surfaceFocusPausedRef.current) return;
+    if (pointerFocusIntentRef.current) {
+      pointerFocusIntentRef.current = false;
+      return;
+    }
+    surfaceFocusPausedRef.current = true;
+    onPauseRef.current("surface-focus", true);
+  };
+
+  const handleBlur = (event: FocusEvent<HTMLDivElement>) => {
+    if (event.target === event.currentTarget) releaseSurfaceFocus();
   };
 
   return (
@@ -129,6 +166,8 @@ export function GestureSurface({ enabled, onAdvance, onPause, children }: Gestur
       data-testid="gesture-surface"
       role="group"
       aria-label="电影场景手势控制"
+      onBlur={handleBlur}
+      onFocus={handleFocus}
       onKeyDown={handleKeyDown}
       onLostPointerCapture={handleLostPointerCapture}
       onPointerCancel={handlePointerCancel}

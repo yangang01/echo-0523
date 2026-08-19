@@ -6,6 +6,8 @@ test("starts in the enter phase with no pauses or scheduled advance", () => {
     phase: "enter",
     paused: [],
     autoAdvanceAt: null,
+    idleRemainingMs: null,
+    resetIdleOnResume: false,
     advanceToken: 0,
   });
 });
@@ -21,6 +23,8 @@ test("progresses from enter through presentation to a ready idle schedule", () =
     phase: "ready",
     paused: [],
     autoAdvanceAt: 6100 + READY_IDLE_MS,
+    idleRemainingMs: READY_IDLE_MS,
+    resetIdleOnResume: false,
     advanceToken: 0,
   });
 });
@@ -60,6 +64,16 @@ test("restarts idle only after every concurrent pause reason has resumed", () =>
   state = reduceDirector(state, { type: "RESUME", reason: "hidden", now: 900 });
   expect(state.autoAdvanceAt).toBe(900 + READY_IDLE_MS);
   expect(reduceDirector(state, { type: "RESUME", reason: "hidden", now: 1000 })).toBe(state);
+});
+
+test("visibility alone preserves the remaining ready idle duration", () => {
+  let state = createDirector("wake");
+  state = reduceDirector(state, { type: "START_PRESENTATION", now: 0 });
+  state = reduceDirector(state, { type: "PRESENTATION_COMPLETE", now: 100 });
+  state = reduceDirector(state, { type: "PAUSE", reason: "hidden", now: 12_000 });
+  state = reduceDirector(state, { type: "RESUME", reason: "hidden", now: 40_000 });
+
+  expect(state.autoAdvanceAt).toBe(40_100);
 });
 
 test("ignores idle expiry while paused, before schedule, or outside ready", () => {

@@ -41,7 +41,7 @@ test("an upward pointer gesture advances once and balances pause", () => {
   fireEvent.pointerUp(surface, { clientX: 20, clientY: 80, pointerId: 4 });
 
   expect(onAdvance).toHaveBeenCalledOnce();
-  expect(onPause.mock.calls).toEqual([[true], [false]]);
+  expect(onPause.mock.calls).toEqual([["gesture", true], ["gesture", false]]);
   expect(setPointerCapture).toHaveBeenCalledWith(4);
   expect(releasePointerCapture).toHaveBeenCalledWith(4);
 });
@@ -58,13 +58,13 @@ test("unmount releases an active pointer once and removes later gesture callback
   expect(onAdvance).toHaveBeenCalledOnce();
   unmount();
   expect(releasePointerCapture).toHaveBeenCalledWith(6);
-  expect(onPause.mock.calls).toEqual([[true], [false]]);
+  expect(onPause.mock.calls).toEqual([["gesture", true], ["gesture", false]]);
   expect(clearTimeoutSpy).toHaveBeenCalled();
 
   document.dispatchEvent(new Event("visibilitychange"));
   act(() => vi.advanceTimersByTime(400));
   expect(releasePointerCapture).toHaveBeenCalledOnce();
-  expect(onPause.mock.calls).toEqual([[true], [false]]);
+  expect(onPause.mock.calls).toEqual([["gesture", true], ["gesture", false]]);
   expect(onAdvance).toHaveBeenCalledOnce();
 });
 
@@ -77,7 +77,7 @@ test("cancelled and horizontal pointer gestures never advance and balance pause"
   fireEvent.pointerUp(surface, { clientX: 120, clientY: 140, pointerId: 2 });
 
   expect(onAdvance).not.toHaveBeenCalled();
-  expect(onPause.mock.calls).toEqual([[true], [false], [true], [false]]);
+  expect(onPause.mock.calls).toEqual([["gesture", true], ["gesture", false], ["gesture", true], ["gesture", false]]);
 });
 
 test("nested controls keep their own pointer, wheel, and keyboard behavior", () => {
@@ -119,12 +119,12 @@ test("only the primary owning pointer can complete or cancel a gesture", () => {
   fireEvent.pointerDown(surface, { clientX: 40, clientY: 160, pointerId: 2, isPrimary: true, button: 0 });
   fireEvent.pointerUp(surface, { clientX: 40, clientY: 80, pointerId: 2 });
   fireEvent.pointerCancel(surface, { pointerId: 2 });
-  expect(onPause.mock.calls).toEqual([[true]]);
+  expect(onPause.mock.calls).toEqual([["gesture", true]]);
   expect(onAdvance).not.toHaveBeenCalled();
 
   fireEvent.pointerUp(surface, { clientX: 20, clientY: 80, pointerId: 1 });
   expect(onAdvance).toHaveBeenCalledOnce();
-  expect(onPause.mock.calls).toEqual([[true], [false]]);
+  expect(onPause.mock.calls).toEqual([["gesture", true], ["gesture", false]]);
 });
 
 test("non-primary and right-button pointers cannot start a gesture", () => {
@@ -145,7 +145,7 @@ test("disabled gestures never advance while pointer pause remains balanced", () 
   fireEvent.keyDown(surface, { key: "ArrowDown" });
 
   expect(onAdvance).not.toHaveBeenCalled();
-  expect(onPause.mock.calls).toEqual([[true], [false]]);
+  expect(onPause.mock.calls).toEqual([["gesture", true], ["gesture", false]]);
 });
 
 test("one wheel burst advances once and a later burst advances again", () => {
@@ -173,6 +173,32 @@ test("eligible keyboard gestures advance once and prevent their defaults", () =>
   expect(onAdvance).toHaveBeenCalledTimes(3);
 });
 
+test("keyboard focus pauses until one navigation key releases focus ownership and advances", () => {
+  const { onAdvance, onPause, surface } = renderSurface();
+
+  fireEvent.focus(surface);
+  expect(onPause.mock.calls).toEqual([["surface-focus", true]]);
+
+  fireEvent.keyDown(surface, { key: "ArrowDown" });
+  fireEvent.keyUp(surface, { key: "ArrowDown" });
+  fireEvent.blur(surface);
+
+  expect(onAdvance).toHaveBeenCalledOnce();
+  expect(onPause.mock.calls).toEqual([["surface-focus", true], ["surface-focus", false]]);
+});
+
+test("pointer-induced surface focus never leaves a stale keyboard pause", () => {
+  const { onAdvance, onPause, surface } = renderSurface();
+
+  fireEvent.pointerDown(surface, { clientX: 20, clientY: 160, pointerId: 14, isPrimary: true, button: 0 });
+  fireEvent.focus(surface);
+  fireEvent.pointerUp(surface, { clientX: 120, clientY: 160, pointerId: 14 });
+  fireEvent.blur(surface);
+
+  expect(onAdvance).not.toHaveBeenCalled();
+  expect(onPause.mock.calls).toEqual([["gesture", true], ["gesture", false]]);
+});
+
 test("the focusable surface uses group semantics and safely contains interactive children", () => {
   const { getByTestId, getByRole } = render(
     <GestureSurface enabled onAdvance={vi.fn()} onPause={vi.fn()}>
@@ -198,7 +224,7 @@ test("lost pointer capture and window blur cancel the owning gesture without adv
   window.dispatchEvent(new Event("blur"));
 
   expect(onAdvance).not.toHaveBeenCalled();
-  expect(onPause.mock.calls).toEqual([[true], [false], [true], [false]]);
+  expect(onPause.mock.calls).toEqual([["gesture", true], ["gesture", false], ["gesture", true], ["gesture", false]]);
   expect(releasePointerCapture).toHaveBeenCalledWith(8);
   expect(releasePointerCapture).not.toHaveBeenCalledWith(7);
   expect(hasPointerCapture).toHaveBeenCalledTimes(2);
@@ -232,7 +258,7 @@ test("visibility cancellation releases an active gesture and unmount clears list
 
   fireEvent.pointerDown(surface, { clientX: 20, clientY: 160, pointerId: 5, isPrimary: true, button: 0 });
   document.dispatchEvent(new Event("visibilitychange"));
-  expect(onPause.mock.calls).toEqual([[true], [false]]);
+  expect(onPause.mock.calls).toEqual([["gesture", true], ["gesture", false]]);
   expect(releasePointerCapture).toHaveBeenCalledWith(5);
 
   fireEvent.wheel(surface, { deltaY: 50 });
@@ -241,5 +267,5 @@ test("visibility cancellation releases an active gesture and unmount clears list
   expect(clearTimeoutSpy).toHaveBeenCalled();
   act(() => vi.advanceTimersByTime(400));
   document.dispatchEvent(new Event("visibilitychange"));
-  expect(onPause.mock.calls).toEqual([[true], [false]]);
+  expect(onPause.mock.calls).toEqual([["gesture", true], ["gesture", false]]);
 });
