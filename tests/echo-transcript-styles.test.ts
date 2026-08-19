@@ -22,6 +22,12 @@ function ruleFor(selector: string, source = css) {
   return source.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`, "s"))?.[1] ?? "";
 }
 
+function lastRuleFor(selector: string, source = css) {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const rules = [...source.matchAll(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`, "gs"))];
+  return rules.at(-1)?.[1] ?? "";
+}
+
 function mediaFor(condition: string) {
   return nestedBlock(css, `@media (${condition})`);
 }
@@ -225,11 +231,38 @@ test("looped cinematic overlays stay on compositor-friendly transform and opacit
     "night-frequency-merge",
     "finale-yu-seal",
     "finale-plate-breathe",
+    "stream-cross",
+    "gate-run",
   ];
   for (const animation of compositorAnimations) {
     const frames = keyframesFor(animation);
     expect(frames, `${animation} keyframes missing`).not.toBe("");
-    expect(frames, `${animation} triggers mobile repaint`).not.toMatch(/filter|background-(?:position|size)|box-shadow/);
+    expect(frames, `${animation} triggers mobile layout or repaint`).not.toMatch(
+      /(?:^|[;{]\s*)(?:left|right|filter|background(?:-position|-size)?|box-shadow)\s*:/,
+    );
     expect(frames, `${animation} needs compositor motion`).toMatch(/transform|opacity/);
+  }
+});
+
+test("dual game streams cross from stable opposing anchors without layout animation", () => {
+  const track = ruleFor(".dual-stream-gates .light-track");
+  expectDeclaration(track, "--stream-travel", /min\(/);
+
+  const beams = ruleFor(".dual-stream-gates .light-track::before,.dual-stream-gates .light-track::after");
+  expectDeclaration(beams, "left", /10%/);
+  expectDeclaration(beams, "will-change", /transform,\s*opacity/);
+
+  const reverseBeam = lastRuleFor(".dual-stream-gates .light-track::after");
+  expectDeclaration(reverseBeam, "left", /auto/);
+  expectDeclaration(reverseBeam, "right", /10%/);
+  expectDeclaration(reverseBeam, "--stream-direction", /-1/);
+
+  const particles = ruleFor(".dual-stream-gates .light-track i");
+  expectDeclaration(particles, "will-change", /transform,\s*opacity/);
+  const reverseParticle = ruleFor(".dual-stream-gates .light-track i:nth-child(2)");
+  expectDeclaration(reverseParticle, "--stream-direction", /-1/);
+
+  for (const name of ["stream-cross", "gate-run"]) {
+    expect(keyframesFor(name)).not.toMatch(/(?:^|[;{]\s*)(?:left|right|filter|background(?:-position|-size)?)\s*:/);
   }
 });

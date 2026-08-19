@@ -147,11 +147,11 @@ button { color:inherit; -webkit-tap-highlight-color:transparent; }
 .light-track i:first-child { left:6%; }.light-track i:nth-child(2) { right:6%; background:var(--pink); box-shadow:0 0 18px var(--pink); }
 .gate-1 i:first-child { left:31%; }.gate-1 i:nth-child(2) { right:61%; }.gate-2 i:first-child { left:65%; }.gate-2 i:nth-child(2) { right:27%; }.gate-3 i { left:50%!important; right:auto!important; transform:scale(2); background:#fff!important; }
 .dual-stream-gates { position:relative; display:grid; grid-template-columns:repeat(3,1fr); gap:4px; width:min(440px,88vw); margin:auto; color:#9aa4c4; font:500 9px/1 ui-monospace,monospace; letter-spacing:.12em; }
-.dual-stream-gates .light-track { grid-column:1/-1; width:100%; height:68px; border:1px solid #52628452; border-radius:16px; background:repeating-linear-gradient(90deg,transparent 0 27px,#5feaff0e 28px 29px),linear-gradient(90deg,#52ebff0d,#966eff17,#ff68c30d); box-shadow:inset 0 0 32px #5cecff0c; }
-.dual-stream-gates .light-track::before,.dual-stream-gates .light-track::after { left:10%; width:2px; background:#58edff; animation:stream-cross 3.2s cubic-bezier(.45,0,.55,1) infinite alternate; }
-.dual-stream-gates .light-track::after { left:auto; right:10%; background:#ff63bc; animation-direction:alternate-reverse; }
-.dual-stream-gates .light-track i { animation:gate-run 3.2s cubic-bezier(.45,0,.55,1) infinite alternate; }
-.dual-stream-gates .light-track i:nth-child(2) { animation-direction:alternate-reverse; }
+.dual-stream-gates .light-track { --stream-travel:min(350px,calc(88vw - 64px)); grid-column:1/-1; width:100%; height:68px; border:1px solid #52628452; border-radius:16px; background:repeating-linear-gradient(90deg,transparent 0 27px,#5feaff0e 28px 29px),linear-gradient(90deg,#52ebff0d,#966eff17,#ff68c30d); box-shadow:inset 0 0 32px #5cecff0c; }
+.dual-stream-gates .light-track::before,.dual-stream-gates .light-track::after { --stream-direction:1; --stream-shift:var(--stream-travel); left:10%; width:2px; background:#58edff; will-change:transform,opacity; animation:stream-cross 3.2s cubic-bezier(.45,0,.55,1) infinite alternate; }
+.dual-stream-gates .light-track::after { --stream-direction:-1; --stream-shift:calc(0px - var(--stream-travel)); left:auto; right:10%; background:#ff63bc; }
+.dual-stream-gates .light-track i { --stream-direction:1; --stream-shift:var(--stream-travel); will-change:transform,opacity; animation:gate-run 3.2s cubic-bezier(.45,0,.55,1) infinite alternate; }
+.dual-stream-gates .light-track i:nth-child(2) { --stream-direction:-1; --stream-shift:calc(0px - var(--stream-travel)); }
 .coop-game button,.replay-button,.finale-reveal { min-height:44px; padding:0 18px; border:1px solid #485373; border-radius:999px; background:linear-gradient(135deg,#121a2ed9,#100d20d9); box-shadow:0 10px 30px #0007,inset 0 0 18px #6ee8ff0d; backdrop-filter:blur(12px); cursor:pointer; font-size:11px; letter-spacing:.1em; transition:border-color .25s ease,box-shadow .25s ease,transform .25s ease; }
 .finale-reveal { min-width:154px; border-color:#6f66a866; color:#e8e8f8; }
 .finale-reveal:hover,.finale-reveal:focus-visible { border-color:#6deaff99; box-shadow:0 10px 34px #0008,0 0 22px #6deaff22,inset 0 0 20px #886dff18; transform:translateY(-2px); outline:none; }
@@ -204,8 +204,8 @@ button { color:inherit; -webkit-tap-highlight-color:transparent; }
 @keyframes coordinate-beam { 0%,100% { opacity:.22; transform:scaleX(.35); } 50% { opacity:1; transform:scaleX(1); } }
 @keyframes privilege-breathe { 0%,100% { transform:scale(.97) rotate(-1deg); } 50% { transform:scale(1.025) rotate(1deg); } }
 @keyframes privilege-petal { to { transform:rotate(360deg) scale(1.06); } }
-@keyframes stream-cross { to { left:88%; opacity:.35; } }
-@keyframes gate-run { to { left:calc(100% - 22px); filter:brightness(1.5); } }
+@keyframes stream-cross { from { opacity:.35; transform:translate3d(0,0,0) scaleY(.6); } to { opacity:1; transform:translate3d(var(--stream-shift),0,0) scaleY(1.35); } }
+@keyframes gate-run { from { opacity:.62; transform:translate3d(0,0,0) scale(.86); } to { opacity:1; transform:translate3d(var(--stream-shift),0,0) scale(1.25); } }
 @keyframes night-wave { 0%,100% { transform:scaleY(1) translateY(0); opacity:.34; } 50% { transform:scaleY(8) translateY(-1px); opacity:1; } }
 @keyframes frequency-heart { 0%,100% { transform:translateX(-50%) scaleX(.35); opacity:.45; } 50% { transform:translateX(-50%) scaleX(1); opacity:1; } }
 
