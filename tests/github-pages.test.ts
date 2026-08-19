@@ -222,6 +222,8 @@ function writeValidBuild(directory: string) {
   writeFileSync(join(directory, "assets/app.css"), "");
   writeFileSync(join(directory, "favicon.svg"), "<svg></svg>");
   writeFileSync(join(directory, "og.png"), "png");
+  mkdirSync(join(directory, "audio"), { recursive: true });
+  writeFileSync(join(directory, "audio/a-moment-apart.mp3"), "mp3");
 }
 
 afterEach(() => {
@@ -231,6 +233,17 @@ afterEach(() => {
 });
 
 describe("GitHub Pages static build", () => {
+  it("ships the normalized background score in the public tree", () => {
+    const source = resolve(
+      process.cwd(),
+      "public/audio/a-moment-apart.mp3",
+    );
+
+    expect(existsSync(source)).toBe(true);
+    expect(readFileSync(source).byteLength).toBeGreaterThan(8_000_000);
+    expect(readFileSync(source).byteLength).toBeLessThan(100_000_000);
+  });
+
   it("defines a least-privilege GitHub Pages deployment workflow", () => {
     const workflowPath = ".github/workflows/deploy-pages.yml";
     expect(existsSync(resolve(process.cwd(), workflowPath))).toBe(true);
@@ -402,6 +415,17 @@ describe("GitHub Pages static build", () => {
 
     expect(() => verifyGithubPagesBuild(createTemporaryBuild())).toThrow(
       /index\.html/,
+    );
+  });
+
+  it("rejects a Pages artifact without the background score", async () => {
+    const { verifyGithubPagesBuild } = await loadBuildVerifier();
+    const directory = createTemporaryBuild();
+    writeValidBuild(directory);
+    rmSync(join(directory, "audio/a-moment-apart.mp3"));
+
+    expect(() => verifyGithubPagesBuild(directory)).toThrow(
+      /Missing audio\/a-moment-apart\.mp3/,
     );
   });
 

@@ -53,7 +53,11 @@ export function verifyGithubPagesBuild(
     verifyLinkedAsset(outputDirectory, label, url);
   }
 
-  for (const asset of ["favicon.svg", "og.png"]) {
+  for (const asset of [
+    "favicon.svg",
+    "og.png",
+    "audio/a-moment-apart.mp3",
+  ]) {
     requireFile(resolve(outputDirectory, asset), asset);
   }
 }
