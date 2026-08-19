@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState, type Dispatch } from "react";
+import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState, type Dispatch, type PointerEvent as ReactPointerEvent } from "react";
 import { sceneEchoes, signalChannels } from "../../lib/content";
 import { createDirector, reduceDirector, type DirectorPhase } from "../../lib/director";
 import {
@@ -180,18 +180,58 @@ export function EchoExperience() {
   const [state, dispatch] = useReducer(reduceExperience, undefined, createExperience);
   const [sound, setSound] = useState(false);
   const [soundFocused, setSoundFocused] = useState(false);
+  const [soundPointerHeld, setSoundPointerHeld] = useState(false);
+  const soundPointerOwner = useRef<{ pointerId: number; target: HTMLButtonElement } | null>(null);
   const [controlInteraction, noteControlInteraction] = useReducer((value: number) => value + 1, 0);
   const [hidden, setHidden] = useState(() => typeof document !== "undefined" && document.visibilityState === "hidden");
   const [visual, setVisual] = useState<{ scene: SceneId; phase: DirectorPhase }>({ scene: "wake", phase: "enter" });
   const sceneIndex = sceneOrder.indexOf(state.scene);
   const cue = state.scene === "wake" || state.scene === "jealousy" ? "heartbeat" : state.scene === "confession" ? "lock" : state.scene === "finale" ? "bloom" : "reply";
   const visualPhase = visual.scene === state.scene ? visual.phase : "enter";
+  const soundControlActive = soundFocused || soundPointerHeld;
+
+  const releaseSoundPointer = useCallback((pointerId?: number, report = true) => {
+    const owner = soundPointerOwner.current;
+    if (!owner || (pointerId !== undefined && owner.pointerId !== pointerId)) return;
+    soundPointerOwner.current = null;
+    try {
+      if (owner.target.hasPointerCapture?.(owner.pointerId) !== false) {
+        owner.target.releasePointerCapture?.(owner.pointerId);
+      }
+    } catch {
+      // Capture may already be gone after cancellation, blur, or teardown.
+    }
+    if (report) setSoundPointerHeld(false);
+  }, []);
+
+  const beginSoundPointer = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (!event.isPrimary || event.button > 0 || soundPointerOwner.current) return;
+    soundPointerOwner.current = { pointerId: event.pointerId, target: event.currentTarget };
+    setSoundPointerHeld(true);
+    try {
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+    } catch {
+      // Pointer-up and window-blur fallbacks still balance ownership.
+    }
+  }, []);
 
   useEffect(() => {
     const updateVisibility = () => setHidden(document.visibilityState === "hidden");
     document.addEventListener("visibilitychange", updateVisibility);
     return () => document.removeEventListener("visibilitychange", updateVisibility);
   }, []);
+
+  useEffect(() => {
+    const releaseForBlur = () => {
+      releaseSoundPointer();
+      setSoundFocused(false);
+    };
+    window.addEventListener("blur", releaseForBlur);
+    return () => {
+      window.removeEventListener("blur", releaseForBlur);
+      releaseSoundPointer(undefined, false);
+    };
+  }, [releaseSoundPointer]);
 
   const reportPhase = useCallback((scene: SceneId, phase: DirectorPhase) => {
     setVisual((current) => current.scene === scene && current.phase === phase ? current : { scene, phase });
@@ -201,9 +241,9 @@ export function EchoExperience() {
     <div className="cinematic-plate" aria-hidden="true" />
     <TwinGravityCanvas scene={state.scene} phase={visualPhase} growth={state.growth} />
     <div className="vignette" aria-hidden="true" />
-    <header className="experience-header"><div className="brand"><span className="brand-mark">05·23</span><span>ECHO CORE</span></div><button className="sound-button" aria-label={sound ? "关闭声音" : "开启声音"} onBlur={() => setSoundFocused(false)} onClick={() => { setSound((value) => !value); noteControlInteraction(); }} onFocus={() => setSoundFocused(true)}>{sound ? "声场 ON" : "声场 OFF"}</button></header>
+    <header className="experience-header"><div className="brand"><span className="brand-mark">05·23</span><span>ECHO CORE</span></div><button className="sound-button" aria-label={sound ? "关闭声音" : "开启声音"} onBlur={() => setSoundFocused(false)} onClick={() => { setSound((value) => !value); noteControlInteraction(); }} onFocus={() => setSoundFocused(true)} onLostPointerCapture={(event) => releaseSoundPointer(event.pointerId)} onPointerCancel={(event) => releaseSoundPointer(event.pointerId)} onPointerDown={beginSoundPointer} onPointerUp={(event) => releaseSoundPointer(event.pointerId)}>{sound ? "声场 ON" : "声场 OFF"}</button></header>
     <div className="progress-rail" aria-label={`体验进度 ${sceneIndex + 1} / 8`}><span style={{ height: `${((sceneIndex + 1) / 8) * 100}%` }} /><b>{String(sceneIndex + 1).padStart(2, "0")} / 08</b></div>
-    <DirectedScene key={state.scene} state={state} dispatch={dispatch} hidden={hidden} controlFocused={soundFocused} controlInteraction={controlInteraction} onPhaseChange={reportPhase} />
+    <DirectedScene key={state.scene} state={state} dispatch={dispatch} hidden={hidden} controlFocused={soundControlActive} controlInteraction={controlInteraction} onPhaseChange={reportPhase} />
     <AudioEngine enabled={sound} paused={hidden} cue={cue} />
     <div className="scene-index" aria-hidden="true">0{sceneIndex + 1}</div>
   </main>;

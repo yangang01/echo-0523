@@ -119,9 +119,11 @@ test("sound focus pauses ready idle and blur restarts a full twelve seconds", ()
 
   const sound = screen.getByRole("button", { name: "开启声音" });
   fireEvent.focus(sound);
+  fireEvent.focus(sound);
   act(() => vi.advanceTimersByTime(30_000));
   expect(screen.getByText("01 / 08")).toBeInTheDocument();
 
+  fireEvent.blur(sound);
   fireEvent.blur(sound);
   act(() => vi.advanceTimersByTime(11_999));
   expect(screen.getByText("01 / 08")).toBeInTheDocument();
@@ -137,11 +139,99 @@ test("a sound click resets ready idle even on devices that do not focus buttons"
   act(() => vi.advanceTimersByTime(11_900));
 
   fireEvent.click(screen.getByRole("button", { name: "开启声音" }));
+  expect(screen.getByRole("button", { name: "关闭声音" })).toBeInTheDocument();
   act(() => vi.advanceTimersByTime(11_999));
   expect(screen.getByText("01 / 08")).toBeInTheDocument();
   act(() => vi.advanceTimersByTime(1));
   act(() => vi.advanceTimersByTime(sceneTimelines.wake.exitMs));
   expect(screen.getByText("02 / 08")).toBeInTheDocument();
+});
+
+test("a primary sound hold pauses at the final ready millisecond and release restarts twelve seconds", () => {
+  vi.useFakeTimers();
+  render(<EchoExperience />);
+  finishWakePresentation();
+  act(() => vi.advanceTimersByTime(11_999));
+
+  const sound = screen.getByRole("button", { name: "开启声音" });
+  const setPointerCapture = vi.fn();
+  const releasePointerCapture = vi.fn();
+  Object.assign(sound, { setPointerCapture, releasePointerCapture, hasPointerCapture: () => true });
+  pointer(sound, "pointerdown", { pointerId: 31 });
+  act(() => vi.advanceTimersByTime(30_000));
+  expect(screen.getByText("01 / 08")).toBeInTheDocument();
+
+  pointer(sound, "pointerup", { pointerId: 99 });
+  act(() => vi.advanceTimersByTime(30_000));
+  expect(screen.getByText("01 / 08")).toBeInTheDocument();
+
+  pointer(sound, "pointerup", { pointerId: 31 });
+  expect(setPointerCapture).toHaveBeenCalledWith(31);
+  expect(releasePointerCapture).toHaveBeenCalledWith(31);
+  act(() => vi.advanceTimersByTime(11_999));
+  expect(screen.getByText("01 / 08")).toBeInTheDocument();
+  act(() => vi.advanceTimersByTime(1));
+  act(() => vi.advanceTimersByTime(sceneTimelines.wake.exitMs));
+  expect(screen.getByText("02 / 08")).toBeInTheDocument();
+});
+
+test.each([
+  ["pointer cancellation", (sound: HTMLElement) => pointer(sound, "pointercancel", { pointerId: 32 })],
+  ["lost pointer capture", (sound: HTMLElement) => pointer(sound, "lostpointercapture", { pointerId: 32 })],
+  ["window blur", () => fireEvent(window, new Event("blur"))],
+])("%s releases a held sound control and restarts ready idle", (_label, release) => {
+  vi.useFakeTimers();
+  render(<EchoExperience />);
+  finishWakePresentation();
+  act(() => vi.advanceTimersByTime(11_999));
+
+  const sound = screen.getByRole("button", { name: "开启声音" });
+  Object.assign(sound, { setPointerCapture: vi.fn(), releasePointerCapture: vi.fn(), hasPointerCapture: () => false });
+  pointer(sound, "pointerdown", { pointerId: 32 });
+  act(() => vi.advanceTimersByTime(20_000));
+  expect(screen.getByText("01 / 08")).toBeInTheDocument();
+  release(sound);
+
+  act(() => vi.advanceTimersByTime(11_999));
+  expect(screen.getByText("01 / 08")).toBeInTheDocument();
+  act(() => vi.advanceTimersByTime(1));
+  act(() => vi.advanceTimersByTime(sceneTimelines.wake.exitMs));
+  expect(screen.getByText("02 / 08")).toBeInTheDocument();
+});
+
+test("sound pointer and focus ownership overlap without an early resume", () => {
+  vi.useFakeTimers();
+  render(<EchoExperience />);
+  finishWakePresentation();
+  act(() => vi.advanceTimersByTime(11_999));
+
+  const sound = screen.getByRole("button", { name: "开启声音" });
+  Object.assign(sound, { setPointerCapture: vi.fn(), releasePointerCapture: vi.fn(), hasPointerCapture: () => true });
+  pointer(sound, "pointerdown", { pointerId: 33 });
+  fireEvent.focus(sound);
+  pointer(sound, "pointerup", { pointerId: 33 });
+  act(() => vi.advanceTimersByTime(30_000));
+  expect(screen.getByText("01 / 08")).toBeInTheDocument();
+
+  fireEvent.blur(sound);
+  act(() => vi.advanceTimersByTime(11_999));
+  expect(screen.getByText("01 / 08")).toBeInTheDocument();
+  act(() => vi.advanceTimersByTime(1));
+  act(() => vi.advanceTimersByTime(sceneTimelines.wake.exitMs));
+  expect(screen.getByText("02 / 08")).toBeInTheDocument();
+});
+
+test("unmount releases an owned sound pointer exactly once", () => {
+  const view = render(<EchoExperience />);
+  const sound = screen.getByRole("button", { name: "开启声音" });
+  const releasePointerCapture = vi.fn();
+  Object.assign(sound, { setPointerCapture: vi.fn(), releasePointerCapture, hasPointerCapture: () => true });
+
+  pointer(sound, "pointerdown", { pointerId: 34 });
+  view.unmount();
+
+  expect(releasePointerCapture).toHaveBeenCalledOnce();
+  expect(releasePointerCapture).toHaveBeenCalledWith(34);
 });
 
 test("visibility keeps the remaining ready idle time instead of restarting it", () => {
