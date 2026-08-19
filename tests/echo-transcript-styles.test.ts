@@ -139,6 +139,11 @@ test("sound control remains a 44px target through the short-screen cascade", () 
   expect(shortSound).not.toMatch(/min-height:\s*(?:[0-3]\d|4[0-3])px/);
 });
 
+test("prevents short-screen stage anchoring from scrolling the header out of view", () => {
+  expectDeclaration(ruleFor(".echo-experience"), "overflow", /clip/);
+  expectDeclaration(ruleFor(".experience-header"), "top", /0/);
+});
+
 test("only the opening gravity control suppresses selection and touch callouts", () => {
   const gravity = ruleFor(".gravity-y");
   expectDeclaration(gravity, "touch-action", /none/);
