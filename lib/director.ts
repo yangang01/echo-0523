@@ -32,10 +32,11 @@ export function createDirector(scene: SceneId): DirectorState {
 }
 
 function beginExit(state: DirectorState): DirectorState {
-  if (state.phase !== "ready" || state.paused.length > 0) return state;
+  if (state.phase !== "ready" || state.paused.includes("hidden")) return state;
   return {
     ...state,
     phase: "exit",
+    paused: [],
     autoAdvanceAt: null,
     idleRemainingMs: null,
     resetIdleOnResume: false,
@@ -48,7 +49,7 @@ export function reduceDirector(state: DirectorState, event: DirectorEvent): Dire
     return state.phase === "enter" ? { ...state, phase: "present" } : state;
   }
   if (event.type === "PRESENTATION_COMPLETE") {
-    if (state.phase !== "present") return state;
+    if (state.phase !== "enter" && state.phase !== "present") return state;
     return {
       ...state,
       phase: "ready",

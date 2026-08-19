@@ -2,6 +2,7 @@ import { forwardRef, useImperativeHandle } from "react";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, vi } from "vitest";
 import { EchoExperience } from "../components/experience/EchoExperience";
+import { signalChannels } from "../lib/content";
 import { sceneOrder, type SceneId } from "../lib/experience";
 import { sceneTimelines } from "../lib/scene-timelines";
 
@@ -165,6 +166,46 @@ test("vertical movement inside the transcript neither changes text nor advances 
   pointer(live, "pointerup", { pointerId: 50, clientX: 144, clientY: 250 });
   expect(transcript()).toHaveTextContent(first!);
   expect(screen.queryByRole("button", { name: "上划进入下一幕" })).not.toBeInTheDocument();
+});
+
+test.each(["button", "swipe"] as const)("one %s intent advances even while the final transcript keeps focus", (mode) => {
+  vi.useFakeTimers();
+  render(<EchoExperience />);
+  revealFirst("wake");
+  revealRemainingText("wake");
+  fireEvent.focus(transcript());
+
+  if (mode === "button") {
+    fireEvent.click(screen.getByRole("button", { name: "上划进入下一幕" }));
+  } else {
+    const surface = screen.getByTestId("gesture-surface");
+    pointer(surface, "pointerdown", { pointerId: 71, clientX: 350, clientY: 720 });
+    act(() => vi.advanceTimersByTime(180));
+    pointer(surface, "pointerup", { pointerId: 71, clientX: 345, clientY: 570 });
+  }
+
+  expect(screen.queryByRole("button", { name: "上划进入下一幕" })).not.toBeInTheDocument();
+  act(() => vi.advanceTimersByTime(sceneTimelines.wake.exitMs));
+  expect(screen.getByText("02 / 08")).toBeInTheDocument();
+});
+
+test("the first signal choice responds during entry and a fast reader can still unlock advance", () => {
+  vi.useFakeTimers();
+  render(<EchoExperience />);
+  for (const scene of ["wake", "jealousy", "confession", "privilege"] as const) finishScene(scene);
+  expect(screen.getByText("05 / 08")).toBeInTheDocument();
+
+  const channel = signalChannels.find((item) => item.id === "little")!;
+  const choice = screen.getByRole("button", { name: channel.label });
+  expect(choice).toBeEnabled();
+  fireEvent.click(choice);
+
+  expect(screen.getByText(`频道已接通 · ${channel.label}`)).toBeInTheDocument();
+  expect(transcript()).toHaveTextContent(channel.echoes[0].text);
+  expect(screen.getByRole("status")).toHaveTextContent(channel.responses[0].text);
+
+  for (let index = 1; index < channel.echoes.length; index += 1) swipeText("left", 80 + index);
+  expect(screen.getByRole("button", { name: "上划进入下一幕" })).toBeInTheDocument();
 });
 
 test("all eight scenes stay manual, preserve special interactions, and finale ends with restart only", () => {

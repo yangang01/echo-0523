@@ -31,6 +31,32 @@ test("ready remains manual across pause and resume", () => {
   expect(state).toMatchObject({ paused: [], autoAdvanceAt: null, idleRemainingMs: null });
 });
 
+test.each(["reading", "gesture", "surface-focus", "control-focus", "control-interaction"] as const)(
+  "an explicit advance ignores the transient %s pause",
+  (reason) => {
+    let state = createDirector("wake");
+    state = reduceDirector(state, { type: "START_PRESENTATION", now: 0 });
+    state = reduceDirector(state, { type: "PRESENTATION_COMPLETE", now: 1 });
+    state = reduceDirector(state, { type: "PAUSE", reason, now: 2 });
+
+    expect(reduceDirector(state, { type: "REQUEST_ADVANCE", now: 3 })).toMatchObject({
+      phase: "exit",
+      paused: [],
+      advanceToken: 1,
+    });
+  },
+);
+
+test("an explicit advance remains blocked while the page is hidden", () => {
+  let state = createDirector("wake");
+  state = reduceDirector(state, { type: "START_PRESENTATION", now: 0 });
+  state = reduceDirector(state, { type: "PRESENTATION_COMPLETE", now: 1 });
+  state = reduceDirector(state, { type: "PAUSE", reason: "reading", now: 2 });
+  state = reduceDirector(state, { type: "PAUSE", reason: "hidden", now: 3 });
+
+  expect(reduceDirector(state, { type: "REQUEST_ADVANCE", now: 4 })).toBe(state);
+});
+
 test("manual ready waits until every pause reason resumes before accepting advance", () => {
   let state = createDirector("wake");
   state = reduceDirector(state, { type: "START_PRESENTATION", now: 0 });

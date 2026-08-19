@@ -143,7 +143,7 @@ function DirectedScene({ state, dispatch, hidden, controlFocused, controlInterac
       case "jealousy": return <JealousyScene {...props} />;
       case "confession": return <ConfessionScene {...props} />;
       case "privilege": return <PrivilegeScene {...props} />;
-      case "signal": return <SignalScene {...props} activeId={transcript.activeId} onChannelSelected={(channelId) => dispatch({ type: "SIGNAL_CHANNEL_SET", channelId })} />;
+      case "signal": return <SignalScene {...props} active={director.phase === "enter" || director.phase === "present"} paused={hidden || director.phase === "exit"} activeId={transcript.activeId} onChannelSelected={(channelId) => dispatch({ type: "SIGNAL_CHANNEL_SET", channelId })} />;
       case "game": return <GameScene {...props} />;
       case "night": return <NightScene {...props} />;
       case "finale": return <FinaleScene {...props} finalRevealed={transcript.unlocked.includes("echo")} onRestart={() => dispatch({ type: "RESTART" })} />;
