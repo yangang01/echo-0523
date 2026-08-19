@@ -162,20 +162,16 @@ export function WakeScene({ onComplete, onReveal, active = true, paused = false 
 
 export function JealousyScene({ onComplete, onReveal, active = true, paused = false }: BasicProps) {
   const [value, setValue] = useState(12);
-  const completed = useRef(false);
-  const completeRef = useRef(onComplete);
   const revealOnce = useRevealOnce(onReveal);
-  useEffect(() => { completeRef.current = onComplete; }, [onComplete]);
-  useEffect(() => {
-    if (value >= 35) revealOnce("praise");
-    if (value >= 60) revealOnce("smile");
-    if (value >= 85) revealOnce("meaning");
-    if (value >= 92 && !completed.current) {
-      completed.current = true;
-      completeRef.current();
-    }
-  }, [revealOnce, value]);
   const done = value >= 92;
+  useAutomaticScene(
+    sceneTimelines.jealousy.reveals,
+    sceneTimelines.jealousy.presentMs,
+    revealOnce,
+    onComplete,
+    active && done,
+    paused,
+  );
   return <div className="signal-scrub"><div className="waveform" style={{ "--clarity": `${value}%` } as CSSProperties}><span>{done ? "在意" : "心跳失序"}</span></div><label>向右解码<input aria-label="滑动解码心跳" type="range" min="0" max="100" value={value} disabled={!active || paused} onChange={(event) => { if (active && !paused) setValue(Number(event.target.value)); }} /></label></div>;
 }
 

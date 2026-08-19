@@ -127,12 +127,21 @@ test("wake clears pointer ownership even when capture release throws", () => {
   expect(onReveal).toHaveBeenCalledWith("spark");
 });
 
-test("jealousy decodes continuous range input without a pulse control", () => {
+test("jealousy decodes once then narrates three echoes at reading pace", () => {
+  vi.useFakeTimers();
   const onComplete = vi.fn();
   const onReveal = vi.fn();
   render(<JealousyScene onComplete={onComplete} onReveal={onReveal} />);
   fireEvent.change(screen.getByRole("slider", { name: "滑动解码心跳" }), { target: { value: "100" } });
+  expect(onReveal).not.toHaveBeenCalled();
+  act(() => vi.advanceTimersByTime(1_200));
+  expect(onReveal.mock.calls.map(([id]) => id)).toEqual(["praise"]);
+  act(() => vi.advanceTimersByTime(10_000));
+  expect(onReveal.mock.calls.map(([id]) => id)).toEqual(["praise", "smile"]);
+  act(() => vi.advanceTimersByTime(10_000));
   expect(onReveal.mock.calls.map(([id]) => id)).toEqual(["praise", "smile", "meaning"]);
+  expect(onComplete).not.toHaveBeenCalled();
+  act(() => vi.advanceTimersByTime(10_000));
   expect(onComplete).toHaveBeenCalledOnce();
   expect(screen.queryByRole("button", { name: "发送解码脉冲" })).not.toBeInTheDocument();
 });
@@ -236,28 +245,29 @@ test("signal locks one selected channel then schedules channel-derived replies",
   expect(onChannelSelected).toHaveBeenCalledOnce();
   expect(onChannelSelected).toHaveBeenCalledWith("rant");
   expect(screen.queryAllByRole("button")).toHaveLength(0);
+  expect(screen.getByText("频道已接通 · 想吐槽一下")).toBeInTheDocument();
   const responses = signalChannels.find((channel) => channel.id === "rant")!.responses;
   expect(screen.queryByText(responses[0].text)).not.toBeInTheDocument();
-  act(() => vi.advanceTimersByTime(1200));
+  act(() => vi.advanceTimersByTime(1_200));
   expect(screen.getByText(responses[0].text)).toBeInTheDocument();
   expect(document.querySelector(".response-live")).toHaveTextContent(responses[0].text);
   expect(screen.getByRole("status")).toHaveTextContent(responses[0].text);
   expect(screen.queryByText(responses[1].text)).not.toBeInTheDocument();
-  act(() => vi.advanceTimersByTime(1900));
+  act(() => vi.advanceTimersByTime(10_000));
   expect(screen.getByText(responses[1].text)).toBeInTheDocument();
   expect(document.querySelector(".response-live")).toHaveTextContent(responses[1].text);
   expect(screen.getByRole("status")).toHaveTextContent(responses[1].text);
   expect(screen.queryByText(responses[2].text)).not.toBeInTheDocument();
-  act(() => vi.advanceTimersByTime(1900));
+  act(() => vi.advanceTimersByTime(10_000));
   expect(screen.getByText(responses[2].text)).toBeInTheDocument();
   expect(document.querySelector(".response-live")).toHaveTextContent(responses[2].text);
   expect(screen.getByRole("status")).toHaveTextContent(responses[2].text);
   expect(onResponse.mock.calls.map(([type]) => type)).toEqual(["curious", "compliment", "ally"]);
   expect(onReveal.mock.calls.map(([id]) => id)).toEqual(["curious", "compliment", "ally"]);
-  act(() => vi.advanceTimersByTime(1300));
+  act(() => vi.advanceTimersByTime(10_000));
   expect(onReveal.mock.calls.map(([id]) => id)).toEqual(["curious", "compliment", "ally", "close"]);
   expect(onComplete).not.toHaveBeenCalled();
-  act(() => vi.advanceTimersByTime(900));
+  act(() => vi.advanceTimersByTime(10_000));
   expect(onComplete).toHaveBeenCalledOnce();
 });
 
