@@ -123,6 +123,16 @@ test("the first non-sound pointer interaction starts music and confirms ON", asy
   });
 });
 
+test("a click-only WebView interaction still unlocks the score once", async () => {
+  audioStart.mockResolvedValue(true);
+  render(<EchoExperience />);
+
+  fireEvent.click(screen.getByRole("button", { name: "把 Y 靠近 U" }));
+
+  expect(audioStart).toHaveBeenCalledOnce();
+  await screen.findByRole("button", { name: "关闭声音" });
+});
+
 test("a blocked automatic start remains OFF and retries on the next gesture", async () => {
   audioStart.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
   render(<EchoExperience />);
@@ -134,7 +144,7 @@ test("a blocked automatic start remains OFF and retries on the next gesture", as
   });
   expect(await screen.findByRole("button", { name: "开启声音" })).toBeVisible();
   fireEvent.keyDown(screen.getByRole("group", { name: "电影场景手势控制" }), {
-    key: "Enter",
+    key: "ArrowDown",
   });
 
   await screen.findByRole("button", { name: "关闭声音" });

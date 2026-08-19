@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState, type Dispatch, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState, type Dispatch, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { sceneEchoes, signalChannels } from "../../lib/content";
 import { createDirector, reduceDirector, type DirectorPhase } from "../../lib/director";
 import {
@@ -181,6 +181,7 @@ export function EchoExperience() {
   const [sound, setSound] = useState(false);
   const audioEngine = useRef<AudioEngineHandle>(null);
   const autoStartPending = useRef(true);
+  const soundRequestPending = useRef<Promise<boolean> | null>(null);
   const [soundFocused, setSoundFocused] = useState(false);
   const [soundPointerHeld, setSoundPointerHeld] = useState(false);
   const soundPointerOwner = useRef<{ pointerId: number; target: HTMLButtonElement } | null>(null);
@@ -194,13 +195,21 @@ export function EchoExperience() {
 
   const requestSound = useCallback((automatic: boolean) => {
     if (automatic && (!autoStartPending.current || sound)) return;
+    if (soundRequestPending.current) return;
     const attempt = audioEngine.current?.requestStart();
     if (!attempt) return;
-    void attempt.then((started) => {
-      if (!started) return;
-      autoStartPending.current = false;
-      setSound(true);
-    });
+    soundRequestPending.current = attempt;
+    void attempt
+      .then((started) => {
+        if (!started) return;
+        autoStartPending.current = false;
+        setSound(true);
+      })
+      .finally(() => {
+        if (soundRequestPending.current === attempt) {
+          soundRequestPending.current = null;
+        }
+      });
   }, [sound]);
 
   const autoUnlockPointer = useCallback((event: ReactPointerEvent<HTMLElement>) => {
@@ -212,7 +221,12 @@ export function EchoExperience() {
   const autoUnlockKeyboard = useCallback((event: ReactKeyboardEvent<HTMLElement>) => {
     if (event.repeat || event.metaKey || event.ctrlKey || event.altKey) return;
     if (event.target instanceof Element && event.target.closest(".sound-button")) return;
-    if (!["Enter", " ", "ArrowUp", "ArrowRight"].includes(event.key)) return;
+    if (!["Enter", " ", "ArrowUp", "ArrowRight", "ArrowDown", "PageDown"].includes(event.key)) return;
+    requestSound(true);
+  }, [requestSound]);
+
+  const autoUnlockClick = useCallback((event: ReactMouseEvent<HTMLElement>) => {
+    if (event.target instanceof Element && event.target.closest(".sound-button")) return;
     requestSound(true);
   }, [requestSound]);
 
@@ -270,7 +284,7 @@ export function EchoExperience() {
     setVisual((current) => current.scene === scene && current.phase === phase ? current : { scene, phase });
   }, []);
 
-  return <main className={`echo-experience scene-is-${state.scene}`} aria-label="0523 回音星核" onKeyDownCapture={autoUnlockKeyboard} onPointerDownCapture={autoUnlockPointer}>
+  return <main className={`echo-experience scene-is-${state.scene}`} aria-label="0523 回音星核" onClickCapture={autoUnlockClick} onKeyDownCapture={autoUnlockKeyboard} onPointerDownCapture={autoUnlockPointer}>
     <div className="cinematic-plate" aria-hidden="true" />
     <TwinGravityCanvas scene={state.scene} phase={visualPhase} growth={state.growth} />
     <div className="vignette" aria-hidden="true" />
