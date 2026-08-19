@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { resolve, sep } from "node:path";
 
-const REPOSITORY_PREFIX = "/qixi-0523-echo-core/";
+const REPOSITORY_PREFIX = "/echo-0523/";
 
 function requireFile(path, label) {
   if (!existsSync(path)) {

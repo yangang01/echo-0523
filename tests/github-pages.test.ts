@@ -208,7 +208,7 @@ async function loadBuildVerifier() {
 }
 
 function writeValidBuild(directory: string) {
-  const prefix = "/qixi-0523-echo-core/";
+  const prefix = "/echo-0523/";
   mkdirSync(join(directory, "assets"), { recursive: true });
   writeFileSync(
     join(directory, "index.html"),
@@ -389,7 +389,7 @@ describe("GitHub Pages static build", () => {
     expect(config).toMatch(/import\s+react\s+from\s+["']@vitejs\/plugin-react["']/);
     expect(config).toMatch(/import\s+\{\s*defineConfig\s*\}\s+from\s+["']vite["']/);
     expect(config).toMatch(/plugins:\s*\[react\(\)\]/);
-    expect(config).toMatch(/base:\s*["']\/qixi-0523-echo-core\/["']/);
+    expect(config).toMatch(/base:\s*["']\/echo-0523\/["']/);
     expect(config).toMatch(/root:\s*["']github-pages["']/);
     expect(config).toMatch(/publicDir:\s*["']\.\.\/public["']/);
     expect(config).toMatch(/outDir:\s*["']\.\.\/dist-github-pages["']/);
@@ -437,7 +437,7 @@ describe("GitHub Pages static build", () => {
     writeFileSync(
       htmlPath,
       readFileSync(htmlPath, "utf8").replace(
-        "/qixi-0523-echo-core/assets/app.js",
+        "/echo-0523/assets/app.js",
         "/assets/app.js",
       ),
     );

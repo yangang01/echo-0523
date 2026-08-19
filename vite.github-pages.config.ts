@@ -2,7 +2,7 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  base: "/qixi-0523-echo-core/",
+  base: "/echo-0523/",
   root: "github-pages",
   publicDir: "../public",
   plugins: [react()],
