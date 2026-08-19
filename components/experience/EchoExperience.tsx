@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState, type Dispatch, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState, type Dispatch, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { sceneEchoes, signalChannels } from "../../lib/content";
 import { createDirector, reduceDirector, type DirectorPhase } from "../../lib/director";
 import {
@@ -12,7 +12,7 @@ import {
   type SceneId,
 } from "../../lib/experience";
 import { sceneTimelines } from "../../lib/scene-timelines";
-import { AudioEngine } from "./AudioEngine";
+import { AudioEngine, type AudioEngineHandle } from "./AudioEngine";
 import { GestureSurface, type GesturePauseSource } from "./GestureSurface";
 import { ScenePanel } from "./ScenePanel";
 import { ConfessionScene, FinaleScene, GameScene, JealousyScene, NightScene, PrivilegeScene, SignalScene, WakeScene } from "./scenes";
@@ -179,6 +179,8 @@ function DirectedScene({ state, dispatch, hidden, controlFocused, controlInterac
 export function EchoExperience() {
   const [state, dispatch] = useReducer(reduceExperience, undefined, createExperience);
   const [sound, setSound] = useState(false);
+  const audioEngine = useRef<AudioEngineHandle>(null);
+  const autoStartPending = useRef(true);
   const [soundFocused, setSoundFocused] = useState(false);
   const [soundPointerHeld, setSoundPointerHeld] = useState(false);
   const soundPointerOwner = useRef<{ pointerId: number; target: HTMLButtonElement } | null>(null);
@@ -189,6 +191,37 @@ export function EchoExperience() {
   const cue = state.scene === "wake" || state.scene === "jealousy" ? "heartbeat" : state.scene === "confession" ? "lock" : state.scene === "finale" ? "bloom" : "reply";
   const visualPhase = visual.scene === state.scene ? visual.phase : "enter";
   const soundControlActive = soundFocused || soundPointerHeld;
+
+  const requestSound = useCallback((automatic: boolean) => {
+    if (automatic && (!autoStartPending.current || sound)) return;
+    const attempt = audioEngine.current?.requestStart();
+    if (!attempt) return;
+    void attempt.then((started) => {
+      if (!started) return;
+      autoStartPending.current = false;
+      setSound(true);
+    });
+  }, [sound]);
+
+  const autoUnlockPointer = useCallback((event: ReactPointerEvent<HTMLElement>) => {
+    if (!event.isPrimary || event.button > 0) return;
+    if (event.target instanceof Element && event.target.closest(".sound-button")) return;
+    requestSound(true);
+  }, [requestSound]);
+
+  const autoUnlockKeyboard = useCallback((event: ReactKeyboardEvent<HTMLElement>) => {
+    if (event.repeat || event.metaKey || event.ctrlKey || event.altKey) return;
+    if (event.target instanceof Element && event.target.closest(".sound-button")) return;
+    if (!["Enter", " ", "ArrowUp", "ArrowRight"].includes(event.key)) return;
+    requestSound(true);
+  }, [requestSound]);
+
+  const toggleSound = useCallback(() => {
+    autoStartPending.current = false;
+    if (sound) setSound(false);
+    else requestSound(false);
+    noteControlInteraction();
+  }, [requestSound, sound]);
 
   const releaseSoundPointer = useCallback((pointerId?: number, report = true) => {
     const owner = soundPointerOwner.current;
@@ -237,14 +270,14 @@ export function EchoExperience() {
     setVisual((current) => current.scene === scene && current.phase === phase ? current : { scene, phase });
   }, []);
 
-  return <main className={`echo-experience scene-is-${state.scene}`} aria-label="0523 回音星核">
+  return <main className={`echo-experience scene-is-${state.scene}`} aria-label="0523 回音星核" onKeyDownCapture={autoUnlockKeyboard} onPointerDownCapture={autoUnlockPointer}>
     <div className="cinematic-plate" aria-hidden="true" />
     <TwinGravityCanvas scene={state.scene} phase={visualPhase} growth={state.growth} />
     <div className="vignette" aria-hidden="true" />
-    <header className="experience-header"><div className="brand"><span className="brand-mark">05·23</span><span>ECHO CORE</span></div><button className="sound-button" aria-label={sound ? "关闭声音" : "开启声音"} onBlur={() => setSoundFocused(false)} onClick={() => { setSound((value) => !value); noteControlInteraction(); }} onFocus={() => setSoundFocused(true)} onLostPointerCapture={(event) => releaseSoundPointer(event.pointerId)} onPointerCancel={(event) => releaseSoundPointer(event.pointerId)} onPointerDown={beginSoundPointer} onPointerUp={(event) => releaseSoundPointer(event.pointerId)}>{sound ? "声场 ON" : "声场 OFF"}</button></header>
+    <header className="experience-header"><div className="brand"><span className="brand-mark">05·23</span><span>ECHO CORE</span></div><button className="sound-button" aria-label={sound ? "关闭声音" : "开启声音"} onBlur={() => setSoundFocused(false)} onClick={toggleSound} onFocus={() => setSoundFocused(true)} onLostPointerCapture={(event) => releaseSoundPointer(event.pointerId)} onPointerCancel={(event) => releaseSoundPointer(event.pointerId)} onPointerDown={beginSoundPointer} onPointerUp={(event) => releaseSoundPointer(event.pointerId)}>{sound ? "声场 ON" : "声场 OFF"}</button></header>
     <div className="progress-rail" aria-label={`体验进度 ${sceneIndex + 1} / 8`}><span style={{ height: `${((sceneIndex + 1) / 8) * 100}%` }} /><b>{String(sceneIndex + 1).padStart(2, "0")} / 08</b></div>
     <DirectedScene key={state.scene} state={state} dispatch={dispatch} hidden={hidden} controlFocused={soundControlActive} controlInteraction={controlInteraction} onPhaseChange={reportPhase} />
-    <AudioEngine enabled={sound} paused={hidden} cue={cue} />
+    <AudioEngine ref={audioEngine} enabled={sound} paused={hidden} finale={state.scene === "finale"} cue={cue} onPlaybackChange={(playing) => { if (!playing) setSound(false); }} />
     <div className="scene-index" aria-hidden="true">0{sceneIndex + 1}</div>
   </main>;
 }

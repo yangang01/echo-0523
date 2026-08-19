@@ -1,10 +1,35 @@
+import { forwardRef, useImperativeHandle } from "react";
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, vi } from "vitest";
+import { afterEach, beforeEach, vi } from "vitest";
 import { EchoExperience } from "../components/experience/EchoExperience";
 import { sceneTimelines } from "../lib/scene-timelines";
 
+const audioStart = vi.hoisted(() => vi.fn<() => Promise<boolean>>());
+const audioProps = vi.hoisted(() => [] as Array<{
+  enabled: boolean;
+  paused: boolean;
+  finale: boolean;
+}>);
+
+vi.mock("../components/experience/AudioEngine", () => ({
+  AudioEngine: forwardRef(function MockAudioEngine(
+    props: { enabled: boolean; paused: boolean; finale: boolean },
+    ref,
+  ) {
+    audioProps.push(props);
+    useImperativeHandle(ref, () => ({ requestStart: audioStart }));
+    return null;
+  }),
+}));
+
 let visibilityDescriptor: PropertyDescriptor | undefined;
 let visibilityCaptured = false;
+
+beforeEach(() => {
+  audioStart.mockReset();
+  audioStart.mockResolvedValue(false);
+  audioProps.length = 0;
+});
 
 afterEach(() => {
   if (visibilityDescriptor) Object.defineProperty(document, "visibilityState", visibilityDescriptor);
@@ -80,6 +105,62 @@ test("renders the persistent YU visual, current scene, progress, and sound contr
   expect(document.querySelector(".cinematic-plate")).toBeInTheDocument();
 });
 
+test("the first non-sound pointer interaction starts music and confirms ON", async () => {
+  audioStart.mockResolvedValue(true);
+  render(<EchoExperience />);
+  const y = screen.getByRole("button", { name: "把 Y 靠近 U" });
+
+  fireEvent.pointerDown(y, { pointerId: 4, isPrimary: true, button: 0 });
+  expect(audioStart).toHaveBeenCalledOnce();
+  await screen.findByRole("button", { name: "关闭声音" });
+
+  fireEvent.pointerDown(y, { pointerId: 5, isPrimary: true, button: 0 });
+  expect(audioStart).toHaveBeenCalledOnce();
+  expect(audioProps.at(-1)).toMatchObject({
+    enabled: true,
+    paused: false,
+    finale: false,
+  });
+});
+
+test("a blocked automatic start remains OFF and retries on the next gesture", async () => {
+  audioStart.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+  render(<EchoExperience />);
+
+  fireEvent.pointerDown(screen.getByRole("button", { name: "把 Y 靠近 U" }), {
+    pointerId: 4,
+    isPrimary: true,
+    button: 0,
+  });
+  expect(await screen.findByRole("button", { name: "开启声音" })).toBeVisible();
+  fireEvent.keyDown(screen.getByRole("group", { name: "电影场景手势控制" }), {
+    key: "Enter",
+  });
+
+  await screen.findByRole("button", { name: "关闭声音" });
+  expect(audioStart).toHaveBeenCalledTimes(2);
+});
+
+test("the sound button follows explicit toggle semantics without auto double-toggle", async () => {
+  audioStart.mockResolvedValue(true);
+  render(<EchoExperience />);
+  const sound = screen.getByRole("button", { name: "开启声音" });
+
+  fireEvent.pointerDown(sound, { pointerId: 8, isPrimary: true, button: 0 });
+  fireEvent.click(sound);
+  await screen.findByRole("button", { name: "关闭声音" });
+  expect(audioStart).toHaveBeenCalledOnce();
+
+  fireEvent.click(screen.getByRole("button", { name: "关闭声音" }));
+  expect(screen.getByRole("button", { name: "开启声音" })).toBeVisible();
+  fireEvent.pointerDown(screen.getByRole("button", { name: "把 Y 靠近 U" }), {
+    pointerId: 9,
+    isPrimary: true,
+    button: 0,
+  });
+  expect(audioStart).toHaveBeenCalledOnce();
+});
+
 test("has no long-press, repeated-click, or continue controls and advances exactly once after a ready swipe", () => {
   vi.useFakeTimers();
   render(<EchoExperience />);
@@ -132,13 +213,17 @@ test("sound focus pauses ready idle and blur restarts a full twelve seconds", ()
   expect(screen.getByText("02 / 08")).toBeInTheDocument();
 });
 
-test("a sound click resets ready idle even on devices that do not focus buttons", () => {
+test("a sound click resets ready idle even on devices that do not focus buttons", async () => {
   vi.useFakeTimers();
+  audioStart.mockResolvedValue(true);
   render(<EchoExperience />);
   finishWakePresentation();
   act(() => vi.advanceTimersByTime(11_900));
 
-  fireEvent.click(screen.getByRole("button", { name: "开启声音" }));
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "开启声音" }));
+    await Promise.resolve();
+  });
   expect(screen.getByRole("button", { name: "关闭声音" })).toBeInTheDocument();
   act(() => vi.advanceTimersByTime(11_999));
   expect(screen.getByText("01 / 08")).toBeInTheDocument();
@@ -241,6 +326,7 @@ test("visibility keeps the remaining ready idle time instead of restarting it", 
   act(() => vi.advanceTimersByTime(11_900));
 
   act(() => setVisibility("hidden"));
+  expect(audioProps.at(-1)).toMatchObject({ paused: true });
   act(() => vi.advanceTimersByTime(30_000));
   expect(screen.getByText("01 / 08")).toBeInTheDocument();
   act(() => setVisibility("visible"));
@@ -366,6 +452,7 @@ test("the finale stays on scene eight after completion and never arms swipe or i
   finishAutomaticScene("finale");
 
   expect(screen.getByText("08 / 08")).toBeInTheDocument();
+  expect(audioProps.at(-1)).toMatchObject({ finale: true });
   expect(screen.queryByText("向上划过星轨")).not.toBeInTheDocument();
   act(() => vi.advanceTimersByTime(60_000));
   expect(screen.getByText("08 / 08")).toBeInTheDocument();
