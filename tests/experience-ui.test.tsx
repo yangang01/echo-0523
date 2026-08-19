@@ -83,7 +83,14 @@ function swipeReadySurface() {
 function finishWakePresentation() {
   act(() => vi.advanceTimersByTime(sceneTimelines.wake.enterMs));
   attractOpeningCores();
-  act(() => vi.advanceTimersByTime(sceneTimelines.wake.presentMs));
+  readSceneFragments(3);
+}
+
+function readSceneFragments(count: number) {
+  for (let index = 0; index < count; index += 1) {
+    fireEvent.click(screen.getByRole("button", { name: "读取下一段" }));
+  }
+  fireEvent.click(screen.getByRole("button", { name: "进入下一幕" }));
 }
 
 function advanceFrom(scene: keyof typeof sceneTimelines) {
@@ -96,9 +103,21 @@ function clickReadyAndWait(scene: keyof typeof sceneTimelines) {
   act(() => vi.advanceTimersByTime(sceneTimelines[scene].exitMs));
 }
 
-function finishAutomaticScene(scene: "confession" | "privilege" | "game" | "night" | "finale") {
+function finishAutomaticScene(scene: "confession" | "privilege" | "game" | "night" | "finale", count = scene === "finale" ? 3 : 4) {
   act(() => vi.advanceTimersByTime(sceneTimelines[scene].enterMs));
-  act(() => vi.advanceTimersByTime(sceneTimelines[scene].presentMs));
+  readSceneFragments(count);
+}
+
+function finishJealousy() {
+  act(() => vi.advanceTimersByTime(sceneTimelines.jealousy.enterMs));
+  fireEvent.change(screen.getByRole("slider", { name: "滑动解码心跳" }), { target: { value: "100" } });
+  readSceneFragments(3);
+}
+
+function finishSignal() {
+  act(() => vi.advanceTimersByTime(sceneTimelines.signal.enterMs));
+  fireEvent.click(screen.getByRole("button", { name: "发生了小事" }));
+  readSceneFragments(4);
 }
 
 test("renders the persistent YU visual, current scene, progress, and sound control", () => {
@@ -396,7 +415,7 @@ test("visibility preserves the final millisecond of enter and exit choreography"
   expect(y).toBeEnabled();
 
   attractOpeningCores();
-  act(() => vi.advanceTimersByTime(sceneTimelines.wake.presentMs));
+  readSceneFragments(3);
   swipeReadySurface();
   act(() => vi.advanceTimersByTime(sceneTimelines.wake.exitMs - 1));
   act(() => setVisibility("hidden"));
@@ -408,18 +427,16 @@ test("visibility preserves the final millisecond of enter and exit choreography"
   expect(screen.getByText("02 / 08")).toBeInTheDocument();
 });
 
-test("visibility pauses an active reveal and resumes from the exact remaining millisecond", () => {
+test("visibility pauses an unrevealed scene until the reader advances it", () => {
   vi.useFakeTimers();
   render(<EchoExperience />);
   act(() => vi.advanceTimersByTime(sceneTimelines.wake.enterMs));
   attractOpeningCores();
-  act(() => vi.advanceTimersByTime(sceneTimelines.wake.reveals[0].at - 1));
-
   act(() => setVisibility("hidden"));
   act(() => vi.advanceTimersByTime(30_000));
   expect(screen.getByRole("status")).toBeEmptyDOMElement();
   act(() => setVisibility("visible"));
-  act(() => vi.advanceTimersByTime(1));
+  fireEvent.click(screen.getByRole("button", { name: "读取下一段" }));
   expect(screen.getByRole("status")).toHaveTextContent("这片宇宙原本安静得没有方向");
 });
 
@@ -430,9 +447,7 @@ test("the finale stays on scene eight after completion and never arms swipe or i
   finishWakePresentation();
   advanceFrom("wake");
 
-  act(() => vi.advanceTimersByTime(sceneTimelines.jealousy.enterMs));
-  fireEvent.change(screen.getByRole("slider", { name: "滑动解码心跳" }), { target: { value: "100" } });
-  act(() => vi.advanceTimersByTime(sceneTimelines.jealousy.presentMs));
+  finishJealousy();
   advanceFrom("jealousy");
 
   finishAutomaticScene("confession");
@@ -440,10 +455,8 @@ test("the finale stays on scene eight after completion and never arms swipe or i
   finishAutomaticScene("privilege");
   advanceFrom("privilege");
 
-  act(() => vi.advanceTimersByTime(sceneTimelines.signal.enterMs));
-  fireEvent.click(screen.getByRole("button", { name: "发生了小事" }));
-  act(() => vi.advanceTimersByTime(sceneTimelines.signal.presentMs));
-  clickReadyAndWait("signal");
+  finishSignal();
+  advanceFrom("signal");
 
   finishAutomaticScene("game");
   advanceFrom("game");

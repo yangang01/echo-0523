@@ -132,6 +132,21 @@ test("styles finale reveal controls as intentional pill buttons", () => {
   expect(finaleReveal).toMatch(/cursor:\s*pointer/);
 });
 
+test("styles manual scene-step controls as accessible reader actions", () => {
+  const step = ruleFor(".scene-step");
+  expectDeclaration(step, "min-height", /44px/);
+  expectDeclaration(step, "border-radius", /999px/);
+  expectDeclaration(step, "cursor", /pointer/);
+  expect(step).toMatch(/background:/);
+
+  const focus = ruleFor(".scene-step:hover,.scene-step:focus-visible");
+  expectDeclaration(focus, "outline", /none/);
+  expect(focus).toMatch(/border-color:/);
+
+  const shortStep = ruleFor(".scene-step", mediaFor("max-height:680px"));
+  expect(numericPxDeclaration(shortStep, "min-height")).toBeGreaterThanOrEqual(44);
+});
+
 test("mobile cinematic shell uses dynamic viewport and safe areas", () => {
   const shell = ruleFor(".echo-experience");
   expectDeclaration(shell, "min-height", /100dvh/);
