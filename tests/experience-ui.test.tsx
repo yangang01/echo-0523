@@ -91,6 +91,11 @@ function advanceFrom(scene: keyof typeof sceneTimelines) {
   act(() => vi.advanceTimersByTime(sceneTimelines[scene].exitMs));
 }
 
+function clickReadyAndWait(scene: keyof typeof sceneTimelines) {
+  fireEvent.click(screen.getByRole("button", { name: "点击或上划进入下一幕" }));
+  act(() => vi.advanceTimersByTime(sceneTimelines[scene].exitMs));
+}
+
 function finishAutomaticScene(scene: "confession" | "privilege" | "game" | "night" | "finale") {
   act(() => vi.advanceTimersByTime(sceneTimelines[scene].enterMs));
   act(() => vi.advanceTimersByTime(sceneTimelines[scene].presentMs));
@@ -171,13 +176,24 @@ test("the sound button follows explicit toggle semantics without auto double-tog
   expect(audioStart).toHaveBeenCalledOnce();
 });
 
-test("has no long-press, repeated-click, or continue controls and advances exactly once after a ready swipe", () => {
+test("waits indefinitely for the visible next-scene button before advancing", () => {
   vi.useFakeTimers();
   render(<EchoExperience />);
 
   expect(screen.queryByText(/长按 3 秒|继续航行|读取回音 1 \/ 3|按住连接深夜频率|发送解码脉冲/)).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "点击或上划进入下一幕" })).not.toBeInTheDocument();
   finishWakePresentation();
-  expect(screen.getByText("向上划过星轨")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "点击或上划进入下一幕" })).toBeVisible();
+  act(() => vi.advanceTimersByTime(120_000));
+  expect(screen.getByText("01 / 08")).toBeInTheDocument();
+  clickReadyAndWait("wake");
+  expect(screen.getByText("02 / 08")).toBeInTheDocument();
+});
+
+test("an upward ready swipe remains an explicit one-time advance", () => {
+  vi.useFakeTimers();
+  render(<EchoExperience />);
+  finishWakePresentation();
   swipeReadySurface();
   act(() => vi.advanceTimersByTime(sceneTimelines.wake.exitMs));
   expect(screen.getByText("02 / 08")).toBeInTheDocument();
@@ -185,7 +201,7 @@ test("has no long-press, repeated-click, or continue controls and advances exact
   expect(screen.getByText("02 / 08")).toBeInTheDocument();
 });
 
-test("reading pauses progression and release restarts the full twelve-second idle window", () => {
+test("reviewing transcript copy never auto-advances and the button still works afterward", () => {
   vi.useFakeTimers();
   render(<EchoExperience />);
   finishWakePresentation();
@@ -195,58 +211,44 @@ test("reading pauses progression and release restarts the full twelve-second idl
   act(() => vi.advanceTimersByTime(30_000));
   expect(screen.getByText("01 / 08")).toBeInTheDocument();
   pointer(status, "pointerup", { pointerId: 13, clientX: 120, clientY: 600 });
-  act(() => vi.advanceTimersByTime(11_999));
+  act(() => vi.advanceTimersByTime(120_000));
   expect(screen.getByText("01 / 08")).toBeInTheDocument();
-  act(() => vi.advanceTimersByTime(1));
-  act(() => vi.advanceTimersByTime(sceneTimelines.wake.exitMs));
+  clickReadyAndWait("wake");
   expect(screen.getByText("02 / 08")).toBeInTheDocument();
 });
 
-test("sound focus pauses ready idle and blur restarts a full twelve seconds", () => {
+test("sound focus cannot trap an intentional next-scene click", () => {
   vi.useFakeTimers();
   render(<EchoExperience />);
   finishWakePresentation();
-  act(() => vi.advanceTimersByTime(11_900));
 
   const sound = screen.getByRole("button", { name: "开启声音" });
   fireEvent.focus(sound);
-  fireEvent.focus(sound);
-  act(() => vi.advanceTimersByTime(30_000));
-  expect(screen.getByText("01 / 08")).toBeInTheDocument();
-
-  fireEvent.blur(sound);
-  fireEvent.blur(sound);
-  act(() => vi.advanceTimersByTime(11_999));
-  expect(screen.getByText("01 / 08")).toBeInTheDocument();
-  act(() => vi.advanceTimersByTime(1));
-  act(() => vi.advanceTimersByTime(sceneTimelines.wake.exitMs));
+  clickReadyAndWait("wake");
   expect(screen.getByText("02 / 08")).toBeInTheDocument();
 });
 
-test("a sound click resets ready idle even on devices that do not focus buttons", async () => {
+test("toggling sound leaves explicit navigation available without starting a timer", async () => {
   vi.useFakeTimers();
   audioStart.mockResolvedValue(true);
   render(<EchoExperience />);
   finishWakePresentation();
-  act(() => vi.advanceTimersByTime(11_900));
 
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "开启声音" }));
     await Promise.resolve();
   });
   expect(screen.getByRole("button", { name: "关闭声音" })).toBeInTheDocument();
-  act(() => vi.advanceTimersByTime(11_999));
+  act(() => vi.advanceTimersByTime(120_000));
   expect(screen.getByText("01 / 08")).toBeInTheDocument();
-  act(() => vi.advanceTimersByTime(1));
-  act(() => vi.advanceTimersByTime(sceneTimelines.wake.exitMs));
+  clickReadyAndWait("wake");
   expect(screen.getByText("02 / 08")).toBeInTheDocument();
 });
 
-test("a primary sound hold pauses at the final ready millisecond and release restarts twelve seconds", () => {
+test("a primary sound hold keeps balanced pointer ownership without blocking navigation", () => {
   vi.useFakeTimers();
   render(<EchoExperience />);
   finishWakePresentation();
-  act(() => vi.advanceTimersByTime(11_999));
 
   const sound = screen.getByRole("button", { name: "开启声音" });
   const setPointerCapture = vi.fn();
@@ -263,10 +265,7 @@ test("a primary sound hold pauses at the final ready millisecond and release res
   pointer(sound, "pointerup", { pointerId: 31 });
   expect(setPointerCapture).toHaveBeenCalledWith(31);
   expect(releasePointerCapture).toHaveBeenCalledWith(31);
-  act(() => vi.advanceTimersByTime(11_999));
-  expect(screen.getByText("01 / 08")).toBeInTheDocument();
-  act(() => vi.advanceTimersByTime(1));
-  act(() => vi.advanceTimersByTime(sceneTimelines.wake.exitMs));
+  clickReadyAndWait("wake");
   expect(screen.getByText("02 / 08")).toBeInTheDocument();
 });
 
@@ -274,11 +273,10 @@ test.each([
   ["pointer cancellation", (sound: HTMLElement) => pointer(sound, "pointercancel", { pointerId: 32 })],
   ["lost pointer capture", (sound: HTMLElement) => pointer(sound, "lostpointercapture", { pointerId: 32 })],
   ["window blur", () => fireEvent(window, new Event("blur"))],
-])("%s releases a held sound control and restarts ready idle", (_label, release) => {
+])("%s releases a held sound control without arming automatic navigation", (_label, release) => {
   vi.useFakeTimers();
   render(<EchoExperience />);
   finishWakePresentation();
-  act(() => vi.advanceTimersByTime(11_999));
 
   const sound = screen.getByRole("button", { name: "开启声音" });
   Object.assign(sound, { setPointerCapture: vi.fn(), releasePointerCapture: vi.fn(), hasPointerCapture: () => false });
@@ -287,18 +285,16 @@ test.each([
   expect(screen.getByText("01 / 08")).toBeInTheDocument();
   release(sound);
 
-  act(() => vi.advanceTimersByTime(11_999));
+  act(() => vi.advanceTimersByTime(120_000));
   expect(screen.getByText("01 / 08")).toBeInTheDocument();
-  act(() => vi.advanceTimersByTime(1));
-  act(() => vi.advanceTimersByTime(sceneTimelines.wake.exitMs));
+  clickReadyAndWait("wake");
   expect(screen.getByText("02 / 08")).toBeInTheDocument();
 });
 
-test("sound pointer and focus ownership overlap without an early resume", () => {
+test("sound pointer and focus ownership overlap without blocking a later explicit click", () => {
   vi.useFakeTimers();
   render(<EchoExperience />);
   finishWakePresentation();
-  act(() => vi.advanceTimersByTime(11_999));
 
   const sound = screen.getByRole("button", { name: "开启声音" });
   Object.assign(sound, { setPointerCapture: vi.fn(), releasePointerCapture: vi.fn(), hasPointerCapture: () => true });
@@ -309,10 +305,7 @@ test("sound pointer and focus ownership overlap without an early resume", () => 
   expect(screen.getByText("01 / 08")).toBeInTheDocument();
 
   fireEvent.blur(sound);
-  act(() => vi.advanceTimersByTime(11_999));
-  expect(screen.getByText("01 / 08")).toBeInTheDocument();
-  act(() => vi.advanceTimersByTime(1));
-  act(() => vi.advanceTimersByTime(sceneTimelines.wake.exitMs));
+  clickReadyAndWait("wake");
   expect(screen.getByText("02 / 08")).toBeInTheDocument();
 });
 
@@ -329,33 +322,29 @@ test("unmount releases an owned sound pointer exactly once", () => {
   expect(releasePointerCapture).toHaveBeenCalledWith(34);
 });
 
-test("visibility keeps the remaining ready idle time instead of restarting it", () => {
+test("hidden pages block explicit navigation until visible again", () => {
   vi.useFakeTimers();
   render(<EchoExperience />);
   finishWakePresentation();
-  act(() => vi.advanceTimersByTime(11_900));
 
   act(() => setVisibility("hidden"));
   expect(audioProps.at(-1)).toMatchObject({ paused: true });
-  act(() => vi.advanceTimersByTime(30_000));
+  fireEvent.click(screen.getByRole("button", { name: "点击或上划进入下一幕" }));
+  act(() => vi.advanceTimersByTime(sceneTimelines.wake.exitMs));
   expect(screen.getByText("01 / 08")).toBeInTheDocument();
   act(() => setVisibility("visible"));
-  act(() => vi.advanceTimersByTime(99));
-  expect(screen.getByText("01 / 08")).toBeInTheDocument();
-  act(() => vi.advanceTimersByTime(1));
-  act(() => vi.advanceTimersByTime(sceneTimelines.wake.exitMs));
+  clickReadyAndWait("wake");
   expect(screen.getByText("02 / 08")).toBeInTheDocument();
 });
 
-test("keyboard focus pauses ready idle and one navigation key advances exactly once", () => {
+test("keyboard focus waits indefinitely and one navigation key advances exactly once", () => {
   vi.useFakeTimers();
   render(<EchoExperience />);
   finishWakePresentation();
-  act(() => vi.advanceTimersByTime(11_900));
 
   const surface = screen.getByTestId("gesture-surface");
   fireEvent.focus(surface);
-  act(() => vi.advanceTimersByTime(30_000));
+  act(() => vi.advanceTimersByTime(120_000));
   expect(screen.getByText("01 / 08")).toBeInTheDocument();
 
   fireEvent.keyDown(surface, { key: "ArrowDown" });
@@ -443,6 +432,7 @@ test("the finale stays on scene eight after completion and never arms swipe or i
 
   act(() => vi.advanceTimersByTime(sceneTimelines.jealousy.enterMs));
   fireEvent.change(screen.getByRole("slider", { name: "滑动解码心跳" }), { target: { value: "100" } });
+  act(() => vi.advanceTimersByTime(sceneTimelines.jealousy.presentMs));
   advanceFrom("jealousy");
 
   finishAutomaticScene("confession");
@@ -453,7 +443,7 @@ test("the finale stays on scene eight after completion and never arms swipe or i
   act(() => vi.advanceTimersByTime(sceneTimelines.signal.enterMs));
   fireEvent.click(screen.getByRole("button", { name: "发生了小事" }));
   act(() => vi.advanceTimersByTime(sceneTimelines.signal.presentMs));
-  advanceFrom("signal");
+  clickReadyAndWait("signal");
 
   finishAutomaticScene("game");
   advanceFrom("game");
@@ -463,7 +453,7 @@ test("the finale stays on scene eight after completion and never arms swipe or i
 
   expect(screen.getByText("08 / 08")).toBeInTheDocument();
   expect(audioProps.at(-1)).toMatchObject({ finale: true });
-  expect(screen.queryByText("向上划过星轨")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "点击或上划进入下一幕" })).not.toBeInTheDocument();
   act(() => vi.advanceTimersByTime(60_000));
   expect(screen.getByText("08 / 08")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "重新进入这片宇宙" })).toBeInTheDocument();
