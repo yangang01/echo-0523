@@ -8,6 +8,7 @@ import * as THREE from "three";
 import {
   bakeMorphCoordinates,
   bakeMorphPosition,
+  blendMorphCoordinates,
   createQualityGovernor,
   dampTrailPositions,
   motionEnvelope,
@@ -15,9 +16,13 @@ import {
   narrativeTrailTargets,
   phaseTargetMode,
   sceneVisualState,
+  transitionEnvelope,
+  transitionQualityScale,
+  transitionSample,
   TwinGravityCanvas,
 } from "../components/experience/TwinGravityCanvas";
-import type { MotionCue } from "../lib/scene-timelines";
+import { sceneTimelines, type MotionCue, type TransitionCue } from "../lib/scene-timelines";
+import { sceneOrder } from "../lib/experience";
 import { sceneParticleTargets } from "../lib/particles";
 
 const rendererState = vi.hoisted(() => ({
@@ -235,6 +240,14 @@ test("bakes interrupted particle buffers in place with one eased scalar", () => 
   expect(Array.from(source)).toEqual([1.25, 11.25, 21.25, -6.75, 3.25, 7.25]);
 });
 
+test("bakes an already-eased transition sample without applying the curve twice", () => {
+  const source = new Float32Array([0, 10, 20]);
+  const target = new Float32Array([8, 18, 28]);
+
+  expect(blendMorphCoordinates(source, target, 0.25)).toBe(source);
+  expect(Array.from(source)).toEqual([2, 12, 22]);
+});
+
 test("reuses cached scene anchors and envelopes without repeated objects", () => {
   const wake = sceneVisualState("wake", true);
 
@@ -291,6 +304,64 @@ test("reduced motion removes shocks and fixes the camera envelope", () => {
   expect(new Set(envelopes.map(({ cameraZ }) => cameraZ)).size).toBe(1);
 });
 
+test("binds every declared scene transition cue to a distinct runtime envelope", () => {
+  const cues = sceneOrder.map((scene) => sceneTimelines[scene].transition);
+  const visualCues = sceneOrder.map((scene) => sceneVisualState(scene).transition);
+  const envelopes = cues.map((cue) => transitionEnvelope(cue));
+
+  expect(visualCues).toEqual(cues);
+  expect(new Set(envelopes.map((envelope) => JSON.stringify(envelope))).size).toBe(cues.length);
+});
+
+test("samples eight deterministic transition signatures with exact continuous endpoints", () => {
+  const cues: TransitionCue[] = [
+    "gravity-wave", "orbit-repair", "coordinate-beam", "petal-bloom",
+    "echo-return", "dual-stream", "wave-merge", "yu-seal",
+  ];
+  const signatures = cues.map((cue) => transitionSample(cue, 0.37));
+
+  expect(new Set(signatures.map((sample) => JSON.stringify(sample))).size).toBe(cues.length);
+  cues.forEach((cue) => {
+    expect(transitionSample(cue, 0)).toMatchObject({
+      morph: 0,
+      axial: 0,
+      twist: 0,
+      radial: 0,
+      anchorImpulse: 0,
+      trailImpulse: 0,
+      bloomPulse: 0,
+      tintMix: 0,
+    });
+    expect(transitionSample(cue, 1)).toMatchObject({
+      morph: 1,
+      axial: 0,
+      twist: 0,
+      radial: 0,
+      anchorImpulse: 0,
+      trailImpulse: 0,
+      bloomPulse: 0,
+      tintMix: 0,
+    });
+  });
+});
+
+test("reduced transition samples retain a short morph while removing spatial choreography", () => {
+  const sample = transitionSample("orbit-repair", 0.4, true);
+
+  expect(sample.morph).toBeGreaterThan(0);
+  expect(sample.morph).toBeLessThan(1);
+  expect(sample).toMatchObject({ axial: 0, twist: 0, radial: 0, anchorImpulse: 0 });
+});
+
+test("reuses transition sample storage and scales choreography down without erasing it", () => {
+  const sample = transitionSample("gravity-wave", 0);
+
+  expect(transitionSample("yu-seal", 0.37, false, sample)).toBe(sample);
+  expect(transitionQualityScale("high")).toBeGreaterThan(transitionQualityScale("medium"));
+  expect(transitionQualityScale("medium")).toBeGreaterThan(transitionQualityScale("low"));
+  expect(transitionQualityScale("low")).toBeGreaterThan(0);
+});
+
 test("twin-gravity source wires choreography and shader safety", () => {
   const source = readFileSync(resolve(process.cwd(), "components/experience/TwinGravityCanvas.tsx"), "utf8");
 
@@ -334,6 +405,58 @@ test("updates particle targets from live scene props without replacing the canva
   expect(Array.from(target.slice(0, 12))).toEqual(Array.from(expected.slice(0, 12)));
   expect(document.querySelector("canvas")).toBe(canvas);
   expect(rendererState.constructs).toBe(1);
+});
+
+test("feeds the active timeline transition cue into live WebGL uniforms", () => {
+  useHighQuality();
+  const view = render(<TwinGravityCanvas scene="wake" phase="present" growth={growth} />);
+  runFrame(320);
+
+  const wakeUniforms = particleState().material.uniforms;
+  const wakeExpected = transitionSample(
+    sceneTimelines.wake.transition,
+    50 / transitionEnvelope(sceneTimelines.wake.transition).durationMs,
+  );
+  expect(wakeUniforms.uTransitionAxial.value).toBeCloseTo(wakeExpected.axial);
+  expect(wakeUniforms.uTransitionTwist.value).toBeCloseTo(wakeExpected.twist);
+  expect(wakeUniforms.uTransitionRadial.value).toBeCloseTo(wakeExpected.radial);
+  const wakeCarry = {
+    axial: wakeUniforms.uTransitionAxial.value,
+    twist: wakeUniforms.uTransitionTwist.value,
+    radial: wakeUniforms.uTransitionRadial.value,
+  };
+
+  view.rerender(<TwinGravityCanvas scene="jealousy" phase="exit" growth={growth} />);
+  runFrame(320);
+  const jealousyUniforms = particleState().material.uniforms;
+  const jealousyExpected = transitionSample(
+    sceneTimelines.jealousy.transition,
+    50 / transitionEnvelope(sceneTimelines.jealousy.transition).durationMs,
+  );
+  const carryWeight = 1 - jealousyExpected.morph;
+  expect(jealousyUniforms.uTransitionAxial.value).toBeCloseTo(jealousyExpected.axial + wakeCarry.axial * carryWeight);
+  expect(jealousyUniforms.uTransitionTwist.value).toBeCloseTo(jealousyExpected.twist + wakeCarry.twist * carryWeight);
+  expect(jealousyUniforms.uTransitionRadial.value).toBeCloseTo(jealousyExpected.radial + wakeCarry.radial * carryWeight);
+  expect(jealousyUniforms.uTransitionTwist.value).not.toBeCloseTo(wakeCarry.twist);
+});
+
+test("carries the visible spatial transition through an interrupted scene morph", () => {
+  useHighQuality();
+  const view = render(<TwinGravityCanvas scene="wake" phase="present" growth={growth} />);
+  runFrame(50);
+  const uniforms = particleState().material.uniforms;
+  const before = {
+    axial: uniforms.uTransitionAxial.value,
+    twist: uniforms.uTransitionTwist.value,
+    radial: uniforms.uTransitionRadial.value,
+  };
+
+  view.rerender(<TwinGravityCanvas scene="jealousy" phase="exit" growth={growth} />);
+  runFrame(0);
+
+  expect(uniforms.uTransitionAxial.value).toBeCloseTo(before.axial);
+  expect(uniforms.uTransitionTwist.value).toBeCloseTo(before.twist);
+  expect(uniforms.uTransitionRadial.value).toBeCloseTo(before.radial);
 });
 
 test("normal unmount cancels animation, disposes, and removes every listener", () => {
@@ -409,7 +532,7 @@ test("sustained slow frames downgrade in place only after the active morph stabi
   expect(particles.geometry.drawRange.count).toBe(32000);
   expect(morphValues.at(-1)).toBeLessThan(1);
 
-  for (let index = 0; index < 4; index += 1) {
+  for (let index = 0; index < 20; index += 1) {
     runFrame(50);
     morphValues.push(particles.material.uniforms.uMorph.value);
   }

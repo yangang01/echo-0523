@@ -10,7 +10,7 @@ import type { Growth, SceneId } from "../../lib/experience";
 import { createFrameTimer } from "../../lib/frame-timer";
 import { sceneGravityAnchors, sceneParticleTargets, type TargetMode } from "../../lib/particles";
 import { initialQuality, lowerQuality, qualityProfiles, type Quality } from "../../lib/quality";
-import { sceneTimelines, type MotionCue } from "../../lib/scene-timelines";
+import { sceneTimelines, type MotionCue, type TransitionCue } from "../../lib/scene-timelines";
 
 type Props = { scene: SceneId; phase: DirectorPhase; growth: Growth };
 type Disposable = { dispose: () => void };
@@ -31,6 +31,30 @@ export type MotionEnvelope = Readonly<{
   tint: string;
 }>;
 
+export type TransitionEnvelope = Readonly<{
+  durationMs: number;
+  easeBias: number;
+  axial: number;
+  twist: number;
+  radial: number;
+  anchorImpulse: number;
+  trailImpulse: number;
+  bloomPulse: number;
+  tintMix: number;
+  tint: string;
+}>;
+
+export type TransitionSample = {
+  morph: number;
+  axial: number;
+  twist: number;
+  radial: number;
+  anchorImpulse: number;
+  trailImpulse: number;
+  bloomPulse: number;
+  tintMix: number;
+};
+
 const motionEnvelopes = {
   attract: { cameraZ: 6.9, cameraDrift: 0.08, shockwave: 0.12, trailEnergy: 0.42, bloom: 0.92, energy: 0.3, coreScale: 0.86, spin: 0.12, tint: "#57ecff" },
   disrupt: { cameraZ: 6.05, cameraDrift: 0.19, shockwave: 0.72, trailEnergy: 0.92, bloom: 1.25, energy: 0.98, coreScale: 0.72, spin: 0.34, tint: "#ff438f" },
@@ -49,6 +73,34 @@ const reducedMotionEnvelopes = Object.fromEntries(
   }),
 ) as Readonly<Record<MotionCue, MotionEnvelope>>;
 
+const transitionEnvelopes = {
+  "gravity-wave": { durationMs: 1650, easeBias: -0.18, axial: 0.32, twist: 0.14, radial: 0.38, anchorImpulse: 0.22, trailImpulse: 0.32, bloomPulse: 0.22, tintMix: 0.2, tint: "#5af1ff" },
+  "orbit-repair": { durationMs: 1580, easeBias: 0.16, axial: -0.16, twist: 0.62, radial: 0.18, anchorImpulse: 0.34, trailImpulse: 0.38, bloomPulse: 0.32, tintMix: 0.28, tint: "#ff5ba8" },
+  "coordinate-beam": { durationMs: 1900, easeBias: -0.08, axial: 0.72, twist: 0.08, radial: -0.14, anchorImpulse: 0.16, trailImpulse: 0.25, bloomPulse: 0.42, tintMix: 0.36, tint: "#d9fbff" },
+  "petal-bloom": { durationMs: 1750, easeBias: 0.12, axial: 0.12, twist: 0.42, radial: 0.52, anchorImpulse: 0.12, trailImpulse: 0.48, bloomPulse: 0.36, tintMix: 0.34, tint: "#ff91d9" },
+  "echo-return": { durationMs: 1680, easeBias: -0.14, axial: -0.42, twist: -0.32, radial: 0.28, anchorImpulse: 0.27, trailImpulse: 0.44, bloomPulse: 0.26, tintMix: 0.3, tint: "#ab7aff" },
+  "dual-stream": { durationMs: 1520, easeBias: 0.2, axial: 0.55, twist: 0.58, radial: -0.22, anchorImpulse: 0.3, trailImpulse: 0.54, bloomPulse: 0.38, tintMix: 0.32, tint: "#55edff" },
+  "wave-merge": { durationMs: 1860, easeBias: -0.2, axial: 0.18, twist: -0.48, radial: 0.44, anchorImpulse: 0.2, trailImpulse: 0.36, bloomPulse: 0.2, tintMix: 0.22, tint: "#879dff" },
+  "yu-seal": { durationMs: 2100, easeBias: 0.08, axial: 0.08, twist: 0.18, radial: -0.32, anchorImpulse: 0.1, trailImpulse: 0.42, bloomPulse: 0.5, tintMix: 0.4, tint: "#e0adff" },
+} as const satisfies Readonly<Record<TransitionCue, TransitionEnvelope>>;
+
+const reducedTransitionEnvelopes = Object.fromEntries(
+  (Object.keys(transitionEnvelopes) as TransitionCue[]).map((cue) => {
+    const envelope = transitionEnvelopes[cue];
+    return [cue, Object.freeze({
+      ...envelope,
+      durationMs: Math.min(envelope.durationMs, 480),
+      axial: 0,
+      twist: 0,
+      radial: 0,
+      anchorImpulse: 0,
+      trailImpulse: 0,
+      bloomPulse: Math.min(envelope.bloomPulse, 0.08),
+      tintMix: envelope.tintMix * 0.35,
+    })];
+  }),
+) as Readonly<Record<TransitionCue, TransitionEnvelope>>;
+
 export function phaseTargetMode(phase: DirectorPhase): TargetMode {
   if (phase === "enter") return "entry";
   if (phase === "exit") return "exit";
@@ -59,11 +111,56 @@ export function motionEnvelope(cue: MotionCue, reducedMotion = false): MotionEnv
   return reducedMotion ? reducedMotionEnvelopes[cue] : motionEnvelopes[cue];
 }
 
+export function transitionEnvelope(cue: TransitionCue, reducedMotion = false): TransitionEnvelope {
+  return reducedMotion ? reducedTransitionEnvelopes[cue] : transitionEnvelopes[cue];
+}
+
+export function transitionQualityScale(quality: Quality): number {
+  return quality === "high" ? 1 : quality === "medium" ? 0.72 : 0.45;
+}
+
+export function transitionSample(
+  cue: TransitionCue,
+  progress: number,
+  reducedMotion = false,
+  output: TransitionSample = {
+    morph: 0,
+    axial: 0,
+    twist: 0,
+    radial: 0,
+    anchorImpulse: 0,
+    trailImpulse: 0,
+    bloomPulse: 0,
+    tintMix: 0,
+  },
+): TransitionSample {
+  const envelope = transitionEnvelope(cue, reducedMotion);
+  const t = THREE.MathUtils.clamp(progress, 0, 1);
+  const smooth = t * t * (3 - 2 * t);
+  output.morph = THREE.MathUtils.clamp(
+    smooth + envelope.easeBias * smooth * (1 - smooth) * (2 * t - 1),
+    0,
+    1,
+  );
+  const pulse = t === 0 || t === 1 ? 0 : Math.sin(Math.PI * t);
+  output.axial = pulse === 0 ? 0 : envelope.axial * pulse;
+  output.twist = pulse === 0 ? 0 : envelope.twist * pulse;
+  output.radial = pulse === 0 ? 0 : envelope.radial * pulse;
+  output.anchorImpulse = pulse === 0 ? 0 : envelope.anchorImpulse * pulse;
+  output.trailImpulse = pulse === 0 ? 0 : envelope.trailImpulse * pulse;
+  output.bloomPulse = pulse === 0 ? 0 : envelope.bloomPulse * pulse;
+  output.tintMix = pulse === 0 ? 0 : envelope.tintMix * pulse;
+  return output;
+}
+
 export type SceneVisualState = Readonly<{
   anchors: ReturnType<typeof sceneGravityAnchors>;
   motion: MotionCue;
   envelope: MotionEnvelope;
   tint: THREE.Color;
+  transition: TransitionCue;
+  transitionEnvelope: TransitionEnvelope;
+  transitionTint: THREE.Color;
 }>;
 
 function createSceneVisualStates(reducedMotion: boolean): Readonly<Record<SceneId, SceneVisualState>> {
@@ -75,8 +172,19 @@ function createSceneVisualStates(reducedMotion: boolean): Readonly<Record<SceneI
       Object.freeze(anchors);
       const motion = sceneTimelines[scene].motion;
       const envelope = motionEnvelope(motion, reducedMotion);
+      const transition = sceneTimelines[scene].transition;
+      const sceneTransitionEnvelope = transitionEnvelope(transition, reducedMotion);
       const tint = Object.freeze(new THREE.Color(envelope.tint)) as THREE.Color;
-      return [scene, Object.freeze({ anchors, motion, envelope, tint })];
+      const transitionTint = Object.freeze(new THREE.Color(sceneTransitionEnvelope.tint)) as THREE.Color;
+      return [scene, Object.freeze({
+        anchors,
+        motion,
+        envelope,
+        tint,
+        transition,
+        transitionEnvelope: sceneTransitionEnvelope,
+        transitionTint,
+      })];
     }),
   ) as Readonly<Record<SceneId, SceneVisualState>>;
 }
@@ -131,10 +239,14 @@ export function bakeMorphPosition(
 }
 
 export function bakeMorphCoordinates(current: Float32Array, target: Float32Array, morph: number): Float32Array {
-  const progress = morphProgress(morph);
+  return blendMorphCoordinates(current, target, morphProgress(morph));
+}
+
+export function blendMorphCoordinates(current: Float32Array, target: Float32Array, progress: number): Float32Array {
+  const clampedProgress = THREE.MathUtils.clamp(progress, 0, 1);
   const length = Math.min(current.length, target.length);
   for (let index = 0; index < length; index += 1) {
-    current[index] = THREE.MathUtils.lerp(current[index], target[index], progress);
+    current[index] = THREE.MathUtils.lerp(current[index], target[index], clampedProgress);
   }
   return current;
 }
@@ -233,6 +345,9 @@ const vertexShader = `
   uniform float uFilaments;
   uniform float uPetals;
   uniform float uCurrents;
+  uniform float uTransitionAxial;
+  uniform float uTransitionTwist;
+  uniform float uTransitionRadial;
   uniform vec2 uPointer;
   uniform vec3 uGravityY;
   uniform vec3 uGravityU;
@@ -244,8 +359,13 @@ const vertexShader = `
   varying float vAlpha;
 
   void main() {
-    float morph = smoothstep(0.0, 1.0, uMorph);
-    vec3 p = mix(position, aTarget, morph);
+    vec3 p = mix(position, aTarget, uMorph);
+    float transitionAngle = uTransitionTwist * (0.42 + aSeed * 0.58);
+    mat2 transitionRotation = mat2(cos(transitionAngle), -sin(transitionAngle), sin(transitionAngle), cos(transitionAngle));
+    p.xy = transitionRotation * p.xy;
+    float transitionRadius = max(length(p.xy), 0.0001);
+    p.xy += (p.xy / transitionRadius) * uTransitionRadial * (0.36 + aSeed * 0.64);
+    p.z += uTransitionAxial * (aSeed - 0.5) * 2.0;
     vec3 toY = uGravityY - p;
     vec3 toU = uGravityU - p;
     float gravityPulse = 0.006 + uTrailEnergy * 0.008;
@@ -408,6 +528,9 @@ export function TwinGravityCanvas({ scene, phase, growth }: Props) {
         uFilaments: { value: 0 },
         uPetals: { value: 0 },
         uCurrents: { value: 0 },
+        uTransitionAxial: { value: 0 },
+        uTransitionTwist: { value: 0 },
+        uTransitionRadial: { value: 0 },
         uPointer: { value: new THREE.Vector2() },
         uGravityY: { value: new THREE.Vector3(...initialAnchors.y) },
         uGravityU: { value: new THREE.Vector3(...initialAnchors.u) },
@@ -534,9 +657,14 @@ export function TwinGravityCanvas({ scene, phase, growth }: Props) {
       let trailEnergy = initialEnvelope.trailEnergy;
       let energy = initialEnvelope.energy;
       let coreScale = initialEnvelope.coreScale;
+      let transitionElapsedMs = 0;
+      const transitionState = transitionSample(initialVisualState.transition, 0, reducedMotion);
+      const transitionCarry = transitionSample(initialVisualState.transition, 0, reducedMotion);
+      const transitionRenderState = transitionSample(initialVisualState.transition, 0, reducedMotion);
       const targetY = new THREE.Vector3(...initialAnchors.y);
       const targetU = new THREE.Vector3(...initialAnchors.u);
       const desiredTint = initialVisualState.tint.clone();
+      const baseTint = initialVisualState.tint.clone();
       let contextLost = false;
 
       const renderFrame = () => {
@@ -548,9 +676,16 @@ export function TwinGravityCanvas({ scene, phase, growth }: Props) {
         const current = liveRef.current;
         const mode = phaseTargetMode(current.phase);
         if (current.scene !== activeScene || mode !== activeMode) {
+          transitionCarry.axial = transitionRenderState.axial;
+          transitionCarry.twist = transitionRenderState.twist;
+          transitionCarry.radial = transitionRenderState.radial;
+          transitionCarry.anchorImpulse = transitionRenderState.anchorImpulse;
+          transitionCarry.trailImpulse = transitionRenderState.trailImpulse;
+          transitionCarry.bloomPulse = transitionRenderState.bloomPulse;
+          baseTint.copy(uniforms.uSceneTint.value);
           const positions = particleGeometry.getAttribute("position") as THREE.BufferAttribute;
           const destinations = particleGeometry.getAttribute("aTarget") as THREE.BufferAttribute;
-          bakeMorphCoordinates(positions.array as Float32Array, destinations.array as Float32Array, morph);
+          blendMorphCoordinates(positions.array as Float32Array, destinations.array as Float32Array, transitionState.morph);
           positions.needsUpdate = true;
           destinations.copyArray(sceneParticleTargets(current.scene, count, mode));
           destinations.needsUpdate = true;
@@ -561,6 +696,7 @@ export function TwinGravityCanvas({ scene, phase, growth }: Props) {
           activeScene = current.scene;
           activeMode = mode;
           morph = 0;
+          transitionElapsedMs = 0;
         }
 
         const currentMotion = activeVisualState.motion;
@@ -573,11 +709,23 @@ export function TwinGravityCanvas({ scene, phase, growth }: Props) {
 
         const envelope = activeVisualState.envelope;
         const anchors = activeVisualState.anchors;
-        targetY.fromArray(anchors.y);
-        targetU.fromArray(anchors.u);
-        const morphRate = reducedMotion ? 2.5 : 1.35;
-        morph = Math.min(1, morph + safeDelta * morphRate);
-        if (pendingQuality && morph >= 1) {
+        transitionElapsedMs += safeDelta * 1000;
+        morph = Math.min(1, transitionElapsedMs / activeVisualState.transitionEnvelope.durationMs);
+        transitionSample(activeVisualState.transition, morph, reducedMotion, transitionState);
+        const choreographyScale = transitionQualityScale(activeQuality);
+        const carryWeight = 1 - transitionState.morph;
+        transitionRenderState.morph = transitionState.morph;
+        transitionRenderState.axial = transitionState.axial * choreographyScale + transitionCarry.axial * carryWeight;
+        transitionRenderState.twist = transitionState.twist * choreographyScale + transitionCarry.twist * carryWeight;
+        transitionRenderState.radial = transitionState.radial * choreographyScale + transitionCarry.radial * carryWeight;
+        transitionRenderState.anchorImpulse = transitionState.anchorImpulse * choreographyScale + transitionCarry.anchorImpulse * carryWeight;
+        transitionRenderState.trailImpulse = transitionState.trailImpulse * choreographyScale + transitionCarry.trailImpulse * carryWeight;
+        transitionRenderState.bloomPulse = transitionState.bloomPulse * choreographyScale + transitionCarry.bloomPulse * carryWeight;
+        transitionRenderState.tintMix = transitionState.tintMix * choreographyScale;
+        const anchorPush = transitionRenderState.anchorImpulse;
+        targetY.set(anchors.y[0] - anchorPush * 0.42, anchors.y[1] + anchorPush * 0.18, anchors.y[2] + anchorPush);
+        targetU.set(anchors.u[0] + anchorPush * 0.42, anchors.u[1] - anchorPush * 0.12, anchors.u[2] - anchorPush);
+        if (pendingQuality && transitionState.morph >= 1) {
           activeQuality = pendingQuality;
           const activeProfile = qualityProfiles[activeQuality];
           particleGeometry.setDrawRange(0, Math.min(count, activeProfile.particles));
@@ -597,7 +745,7 @@ export function TwinGravityCanvas({ scene, phase, growth }: Props) {
         uCore.position.lerp(targetU, 1 - Math.exp(-3.4 * safeDelta));
 
         uniforms.uTime.value = elapsed;
-        uniforms.uMorph.value = morph;
+        uniforms.uMorph.value = transitionState.morph;
         uniforms.uEnergy.value = energy;
         uniforms.uPhase.value = current.phase === "enter" ? 0 : current.phase === "present" ? 1 : current.phase === "ready" ? 2 : 3;
         uniforms.uShockwave.value = reducedMotion ? 0 : shockwave;
@@ -605,10 +753,14 @@ export function TwinGravityCanvas({ scene, phase, growth }: Props) {
         uniforms.uFilaments.value = damp(uniforms.uFilaments.value, current.growth.filaments, 3, safeDelta);
         uniforms.uPetals.value = damp(uniforms.uPetals.value, current.growth.petals, 3, safeDelta);
         uniforms.uCurrents.value = damp(uniforms.uCurrents.value, current.growth.currents, 3, safeDelta);
+        uniforms.uTransitionAxial.value = transitionRenderState.axial;
+        uniforms.uTransitionTwist.value = transitionRenderState.twist;
+        uniforms.uTransitionRadial.value = transitionRenderState.radial;
         uniforms.uPointer.value.lerp(pointer, 1 - Math.exp(-2.5 * safeDelta));
         uniforms.uGravityY.value.copy(yCore.position);
         uniforms.uGravityU.value.copy(uCore.position);
-        uniforms.uSceneTint.value.lerp(desiredTint, 1 - Math.exp(-2.4 * safeDelta));
+        baseTint.lerp(desiredTint, 1 - Math.exp(-2.4 * safeDelta));
+        uniforms.uSceneTint.value.copy(baseTint).lerp(activeVisualState.transitionTint, transitionRenderState.tintMix);
 
         const gentlePulse = reducedMotion ? 0 : Math.sin(elapsed * 1.15) * 0.024;
         yCore.scale.setScalar(coreScale + gentlePulse);
@@ -625,10 +777,10 @@ export function TwinGravityCanvas({ scene, phase, growth }: Props) {
           dampTrailPositions(trail.positions, trail.target, trailDamping);
           trail.positionAttribute.needsUpdate = true;
           const material = trail.line.material as THREE.LineBasicMaterial;
-          material.opacity = (0.2 + index * 0.08) * trailEnergy;
+          material.opacity = (0.2 + index * 0.08) * (trailEnergy + transitionRenderState.trailImpulse);
         });
-        narrativeTrails.rotation.z = reducedMotion ? 0 : Math.sin(elapsed * 0.22) * 0.08 * trailEnergy;
-        narrativeTrails.rotation.y = reducedMotion ? 0 : elapsed * envelope.spin * 0.12;
+        narrativeTrails.rotation.z = reducedMotion ? 0 : Math.sin(elapsed * 0.22) * 0.08 * trailEnergy + transitionRenderState.twist * 0.18;
+        narrativeTrails.rotation.y = reducedMotion ? 0 : elapsed * envelope.spin * 0.12 + transitionRenderState.axial * 0.08;
         infinityRibbons.visible = current.scene === "finale" && (current.phase === "present" || current.phase === "ready");
         infinityRibbons.children.forEach((child, index) => {
           ((child as THREE.Line).material as THREE.LineBasicMaterial).opacity = infinityRibbons.visible ? 0.32 + index * 0.11 : 0;
@@ -641,7 +793,8 @@ export function TwinGravityCanvas({ scene, phase, growth }: Props) {
         camera.lookAt(0, 0, 0);
         if (bloomPass) {
           const bloomScale = qualityProfiles[activeQuality].bloomScale;
-          bloomPass.strength = damp(bloomPass.strength, envelope.bloom * bloomScale * (0.8 + energy * 0.2), 2.4, safeDelta);
+          const transitionBloom = transitionRenderState.bloomPulse;
+          bloomPass.strength = damp(bloomPass.strength, (envelope.bloom + transitionBloom) * bloomScale * (0.8 + energy * 0.2), 2.4, safeDelta);
         }
         if (composer) composer.render();
         else renderer.render(world, camera);
