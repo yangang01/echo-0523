@@ -42,6 +42,12 @@ function expectDeclaration(rule: string, property: string, value: RegExp) {
   expect(rule, `missing ${property}`).toMatch(new RegExp(`${property}:\\s*${value.source}`));
 }
 
+function numericPxDeclaration(rule: string, property: string) {
+  const escaped = property.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const value = rule.match(new RegExp(`(?:^|;)\\s*${escaped}:\\s*([\\d.]+)px(?:\\s*;|$)`))?.[1];
+  return value === undefined ? null : Number(value);
+}
+
 test("renders the transcript as a compact cinematic glass panel", () => {
   const transcript = ruleFor(".echo-transcript");
 
@@ -143,6 +149,25 @@ test("sound control remains a 44px target through the short-screen cascade", () 
   const shortSound = ruleFor(".sound-button", mediaFor("max-height:680px"));
   expectDeclaration(shortSound, "min-height", /44px/);
   expect(shortSound).not.toMatch(/min-height:\s*(?:[0-3]\d|4[0-3])px/);
+});
+
+test("keeps the jealousy heartbeat range at least 44px tall on short phones", () => {
+  const label = ruleFor(".signal-scrub label");
+  const range = ruleFor('.signal-scrub input[type="range"]');
+
+  expect(numericPxDeclaration(label, "min-height")).toBeGreaterThanOrEqual(44);
+  expect(numericPxDeclaration(range, "height")).toBeGreaterThanOrEqual(44);
+  expectDeclaration(range, "accent-color", /var\(--pink\)/);
+
+  const shortPhone = mediaFor("max-height:680px");
+  const shortTargetRules = [...shortPhone.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter(([, selectors]) =>
+    selectors.split(",").some((selector) => /\.signal-scrub\b.*(?:label|input)/.test(selector.trim())),
+  );
+  for (const [, selectors, declarations] of shortTargetRules) {
+    for (const match of declarations.matchAll(/(?:^|;)\s*((?:min-)?height):\s*([\d.]+)px(?:\s*;|$)/g)) {
+      expect(Number(match[2]), `${selectors.trim()} ${match[1]} shrinks on short phones`).toBeGreaterThanOrEqual(44);
+    }
+  }
 });
 
 test("prevents short-screen stage anchoring from scrolling the header out of view", () => {
